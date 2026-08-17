@@ -1,3 +1,27 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0918; }
-#game { display: block; width: 100vw; height: 100vh; cursor: none; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden; background: #0a0918;
+  overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+#game {
+  display: block; width: 100vw; height: 100vh; cursor: none;
+  touch-action: none;
+}
+
+/* Cartel de "girá el teléfono" — la cancha es horizontal, en vertical no
+   entra. Solo aparece en pantallas táctiles en modo retrato. */
+#rotate-hint {
+  display: none;
+  position: fixed; inset: 0; z-index: 9999;
+  background: #0a0918; color: #e8e6f5;
+  align-items: center; justify-content: center; flex-direction: column;
+  font-family: Georgia, serif; text-align: center; padding: 24px;
+}
+#rotate-hint .icon { font-size: 48px; margin-bottom: 14px; }
+#rotate-hint p { font-size: 17px; line-height: 1.5; color: rgba(232,230,245,0.85); }
+
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate-hint { display: flex; }
+}

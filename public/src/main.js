@@ -5,6 +5,7 @@
 import { CFG, FIXED_DT } from './config.js';
 import { clamp } from './utils.js';
 import { Input } from './input.js';
+import { TouchControls } from './touch.js';
 import { Player } from './player.js';
 import { Ball } from './ball.js';
 import { Bot } from './bot.js';
@@ -34,10 +35,12 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 addEventListener('resize', resize);
+addEventListener('orientationchange', () => setTimeout(resize, 200));
 resize();
 
 // --- Mundo ---
 const input = new Input(canvas);
+const touch = new TouchControls(canvas);
 // Posiciones de salida sobre el campo pintado: a media altura del patio,
 // cada uno delante de su propio arco.
 const SPAWN_Y = (CFG.arena.T + CFG.arena.B) / 2;
@@ -48,11 +51,12 @@ const camera = new Camera(canvas);
 const particles = new Particles();
 const sound = new Sound();
 input.firstGesture = () => sound.init();
+touch.onFirstTouch = () => sound.init();
 
 const orbs = new OrbField();
 
 const world = {
-  playerA, playerB, ball, camera, particles, sound, input, orbs,
+  playerA, playerB, ball, camera, particles, sound, input, touch, orbs,
   debug: DEBUG, botsMode: BOTS, paused: false,
   match: null,
 };
@@ -82,6 +86,20 @@ function step(dt) {
   // Control del jugador humano (o bot A en modo bots)
   if (botA) {
     botA.update(dt, world);
+  } else if (touch.active) {
+    // Joystick = dirección relativa, no un punto fijo: se recalcula cada
+    // paso desde la posición actual de la escoba, igual que el mouse
+    // "sigue" apuntando aunque el jugador se mueva.
+    const dir = touch.aimDir();
+    if (dir) {
+      playerA.control.aim.x = playerA.broom.pos.x + dir.x * 1000;
+      playerA.control.aim.y = playerA.broom.pos.y + dir.y * 1000;
+    }
+    playerA.control.thrust = touch.thrust && !frozen;
+    playerA.control.brake = false;   // recorte v1: sin freno táctil
+    playerA.control.tuck = touch.hit;
+    playerA.updateEnergy(dt, false); // recorte v1: sin boost táctil
+    touch.tick(dt);
   } else {
     const aim = camera.screenToWorld(input.cursor.x, input.cursor.y);
     playerA.control.aim.x = aim.x;
@@ -176,6 +194,7 @@ function step(dt) {
 // --- Loop principal ---
 let last = performance.now();
 let acc = 0;
+let prevMatchState = null;
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -186,9 +205,14 @@ function frame(now) {
   if (input.pressed('KeyP') || input.pressed('Escape')) world.paused = !world.paused;
   if (input.pressed('F3')) { debugOn = !debugOn; world.debug = debugOn; }
   if (input.pressed('KeyR')) match.reset(true);
-  if (match.state === 'end' && (input.pressed('lmb') || input.pressed('Enter'))) {
+  // Al entrar a la pantalla de fin, se descarta cualquier toque que haya
+  // quedado de un botón presionado justo antes del gol — si no, el primer
+  // frame reiniciaría solo.
+  if (match.state === 'end' && prevMatchState !== 'end') touch.consumeTap();
+  if (match.state === 'end' && (input.pressed('lmb') || input.pressed('Enter') || touch.consumeTap())) {
     match.reset(true);
   }
+  prevMatchState = match.state;
   input.endFrame();
 
   if (!world.paused) {

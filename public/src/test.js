@@ -4,6 +4,7 @@
 // activos (la pelota nunca se escapa) pero los portales son pared.
 import { CFG, FIXED_DT } from './config.js';
 import { Input } from './input.js';
+import { TouchControls } from './touch.js';
 import { Player } from './player.js';
 import { Ball } from './ball.js';
 import { Camera } from './camera.js';
@@ -25,17 +26,20 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 addEventListener('resize', resize);
+addEventListener('orientationchange', () => setTimeout(resize, 200));
 resize();
 
 const CENTER_Y = (CFG.arena.T + CFG.arena.B) / 2;
 
 const input = new Input(canvas);
+const touch = new TouchControls(canvas);
 const player = new Player(-300, CENTER_Y, 0, 'p1');
 const ball = new Ball(120, CENTER_Y);
 const camera = new Camera(canvas);
 const particles = new Particles();
 const sound = new Sound();
 input.firstGesture = () => sound.init();
+touch.onFirstTouch = () => sound.init();
 
 // Match de utilería: el renderer espera uno, pero en práctica no se usa.
 const stubMatch = {
@@ -46,7 +50,7 @@ const stubMatch = {
 const orbs = new OrbField();
 
 const world = {
-  playerA: player, playerB: null, ball, camera, particles, sound, input, orbs,
+  playerA: player, playerB: null, ball, camera, particles, sound, input, touch, orbs,
   match: stubMatch, practice: true, botsMode: false, paused: false,
   debug: params.has('debug'),
   stats: { lastHit: 0, lastHitAt: 0, lastAimed: false },
@@ -82,16 +86,28 @@ function placeBall() {
 let lastBallSpeed = 0;
 
 function step(dt) {
-  const aim = camera.screenToWorld(input.cursor.x, input.cursor.y);
-  player.control.aim.x = aim.x;
-  player.control.aim.y = aim.y;
-  player.control.thrust = input.lmb;
-  player.control.brake = input.rmb;
-  player.control.tuck = input.tuck;
-  input.tick(dt);
+  if (touch.active) {
+    const dir = touch.aimDir();
+    if (dir) {
+      player.control.aim.x = player.broom.pos.x + dir.x * 1000;
+      player.control.aim.y = player.broom.pos.y + dir.y * 1000;
+    }
+    player.control.thrust = touch.thrust;
+    player.control.brake = false;
+    player.control.tuck = touch.hit;
+    touch.tick(dt);
+  } else {
+    const aim = camera.screenToWorld(input.cursor.x, input.cursor.y);
+    player.control.aim.x = aim.x;
+    player.control.aim.y = aim.y;
+    player.control.thrust = input.lmb;
+    player.control.brake = input.rmb;
+    player.control.tuck = input.tuck;
+    input.tick(dt);
+  }
 
   const wasAimed = player.rider.aimed && player.rider.phase === 'whip';
-  player.updateEnergy(dt, input.boost);
+  player.updateEnergy(dt, touch.active ? false : input.boost);
   player.update(dt, false, { ball: ball.pos, aim: player.control.aim });
   collideBroomArena(
     player.broom,
