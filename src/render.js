@@ -47,6 +47,7 @@ export class Renderer {
     ctx.restore();
 
     this._aimIndicator(ctx, world);
+    if (world.touch) world.touch.draw(ctx, W, H);
     this._hud(ctx, world, W, H);
   }
 
@@ -628,7 +629,7 @@ export class Renderer {
 
   // ---------- INDICADOR DE APUNTADO ----------
   _aimIndicator(ctx, world) {
-    if (world.botsMode) return;
+    if (world.botsMode || world.touch?.active) return;
     const cur = world.input.cursor;
     // crosshair
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
@@ -732,7 +733,7 @@ export class Renderer {
       ctx.fillStyle = 'rgba(255,255,255,0.65)';
       const pulse = 0.5 + 0.35 * Math.sin(this.t * 4);
       ctx.globalAlpha = 0.5 + pulse * 0.5;
-      ctx.fillText('Click o ENTER para jugar otra', cx, H * 0.36 + 140);
+      ctx.fillText(world.touch?.active ? 'Tocá la pantalla para jugar otra' : 'Click o ENTER para jugar otra', cx, H * 0.36 + 140);
       ctx.globalAlpha = 1;
     }
 
@@ -787,12 +788,19 @@ export class Renderer {
 
   _hints(ctx, world, W, H) {
     if (world.botsMode) return;
-    const inp = world.input;
     let text = null;
-    if (inp.mouseMoved < 300) text = 'Mueve el MOUSE para apuntar la escoba';
-    else if (inp.thrustTime < 1.4) text = 'Mantén CLICK IZQUIERDO para acelerar';
-    else if (inp.brakeTime < 0.5) text = 'CLICK DERECHO para frenar (tu cuerpo sigue de largo…)';
-    else if (inp.tuckTime < 0.5) text = 'Mantén ESPACIO para recogerte y girar más rápido';
+    if (world.touch?.active) {
+      const t = world.touch;
+      if (!t.hasDir) text = 'Deslizá el dedo del lado izquierdo para apuntar la escoba';
+      else if (t.thrustTime < 1.4) text = 'Mantené GAS para acelerar';
+      else if (t.hitTime < 0.5) text = 'Mantené GOLPE y soltá para pegarle a la pelota';
+    } else {
+      const inp = world.input;
+      if (inp.mouseMoved < 300) text = 'Mueve el MOUSE para apuntar la escoba';
+      else if (inp.thrustTime < 1.4) text = 'Mantén CLICK IZQUIERDO para acelerar';
+      else if (inp.brakeTime < 0.5) text = 'CLICK DERECHO para frenar (tu cuerpo sigue de largo…)';
+      else if (inp.tuckTime < 0.5) text = 'Mantén ESPACIO para recogerte y girar más rápido';
+    }
     if (!text) return;
     ctx.font = '20px Georgia, serif';
     ctx.textAlign = 'center';
