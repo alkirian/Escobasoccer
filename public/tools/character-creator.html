@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Creador de personajes — Escoba Voladora</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0918; color: #e8e6f5;
+    font-family: -apple-system, Segoe UI, sans-serif;
+    min-height: 100vh;
+  }
+  h1 { font-family: Georgia, serif; font-size: 22px; font-weight: normal; color: #f4ecca; }
+  h2 { font-family: Georgia, serif; font-size: 15px; font-weight: normal; color: #c9c4e8; margin-bottom: 10px; }
+  a.back { color: #8fb8ff; font-size: 13px; text-decoration: none; }
+  a.back:hover { text-decoration: underline; }
+  header { display: flex; justify-content: space-between; align-items: baseline; padding: 18px 24px; border-bottom: 1px solid #2a2650; }
+  main { display: flex; flex-wrap: wrap; gap: 20px; padding: 20px 24px 40px; align-items: flex-start; }
+  .stage-wrap { flex: 0 0 auto; }
+  canvas { border-radius: 10px; border: 1px solid #33306a; display: block; }
+  .panel {
+    background: #14122c; border: 1px solid #2a2650; border-radius: 10px;
+    padding: 16px 18px; width: 300px; flex: 0 0 auto;
+  }
+  fieldset { border: none; margin-bottom: 18px; }
+  fieldset:last-child { margin-bottom: 0; }
+  label { display: block; font-size: 12.5px; color: #a9a4cf; margin: 10px 0 4px; }
+  label:first-child { margin-top: 0; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row label { margin: 0; flex: 1; }
+  input[type=color] {
+    width: 34px; height: 26px; border: 1px solid #3a3670; border-radius: 6px;
+    background: none; padding: 0; cursor: pointer;
+  }
+  select, input[type=text] {
+    width: 100%; background: #1c1a3d; border: 1px solid #33306a; color: #e8e6f5;
+    border-radius: 6px; padding: 6px 8px; font-size: 13px;
+  }
+  input[type=range] { width: 100%; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: #3fc0ff; }
+  button {
+    background: #2a2660; border: 1px solid #4a4590; color: #e8e6f5;
+    border-radius: 6px; padding: 8px 12px; font-size: 13px; cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { background: #3a3580; }
+  button.primary { background: #155f92; border-color: #3fc0ff; }
+  button.primary:hover { background: #1b76b3; }
+  button.small { padding: 4px 9px; font-size: 12px; }
+  button.danger { background: #4a1616; border-color: #7a2a2a; }
+  button.danger:hover { background: #6a1e1e; }
+  .btnRow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .hint { font-size: 12px; color: #766fa0; line-height: 1.5; }
+  .presetRow {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    background: #1c1a3d; border-radius: 6px; margin-bottom: 6px;
+  }
+  .presetName { flex: 1; font-size: 13px; }
+  .swatch { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto; border: 1px solid rgba(255,255,255,0.3); }
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #1c1a3d; border: 1px solid #3fc0ff; color: #fff;
+    padding: 10px 18px; border-radius: 8px; font-size: 13px;
+    opacity: 0; transition: opacity 0.25s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+  pre#exportBox {
+    background: #0f0d24; border: 1px solid #33306a; border-radius: 6px;
+    padding: 10px; font-size: 11.5px; color: #9fe6b0; white-space: pre-wrap;
+    max-height: 160px; overflow-y: auto; margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧙 Creador de personajes</h1>
+  <a class="back" href="/">‹ Volver al juego</a>
+</header>
+
+<main>
+  <div class="stage-wrap">
+    <canvas id="stage" width="720" height="760"></canvas>
+    <p class="hint" style="margin-top:8px; max-width:720px;">
+      La postura (piernas, torso, manos en la escoba) es la misma que usa el juego y no se edita acá —
+      solo cambia la apariencia: colores, sombrero, capa, barba, runa. Las manos siempre quedan
+      ancladas a la escoba, incluso al mover el slider de "recogido".
+    </p>
+  </div>
+
+  <div class="panel">
+    <fieldset>
+      <h2>Apariencia</h2>
+      <label for="nameInput">Nombre</label>
+      <input type="text" id="nameInput" placeholder="Bruja de fuego">
+
+      <div class="row">
+        <label for="teamColor">Color principal (túnica)</label>
+        <input type="color" id="teamColor" value="#3fc0ff">
+      </div>
+      <div class="row">
+        <label for="skinColor">Tono de piel</label>
+        <input type="color" id="skinColor" value="#e8c39a">
+      </div>
+
+      <label for="hatSelect">Sombrero</label>
+      <select id="hatSelect">
+        <option value="cono">Cono de mago</option>
+        <option value="ala-ancha">Ala ancha</option>
+        <option value="capucha">Capucha</option>
+      </select>
+      <div class="row" style="margin-top:8px;">
+        <label for="hatColor">Color del sombrero</label>
+        <input type="color" id="hatColor" value="#3fc0ff">
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <label for="beardCheck">Barba</label>
+        <input type="checkbox" id="beardCheck">
+      </div>
+
+      <div class="row">
+        <label for="capeColor">Color de la capa</label>
+        <input type="color" id="capeColor" value="#155f92">
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <label for="runeCheck">Runa en el pecho</label>
+        <input type="checkbox" id="runeCheck">
+      </div>
+      <div class="row">
+        <label for="runeColor">Color de la runa</label>
+        <input type="color" id="runeColor" value="#ffd76a">
+      </div>
+
+      <div class="btnRow">
+        <button id="randomBtn">🎲 Aleatorio</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <h2>Vista previa de pose</h2>
+      <label for="tuckRange">Recogido (Space) — 0 a 100%</label>
+      <input type="range" id="tuckRange" min="0" max="100" value="0">
+      <div class="row" style="margin-top:8px;">
+        <label for="skeletonCheck">Mostrar esqueleto (puntos físicos)</label>
+        <input type="checkbox" id="skeletonCheck">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <h2>Variantes guardadas</h2>
+      <div id="presetList"></div>
+      <div class="btnRow">
+        <button id="saveBtn" class="primary">Guardar variante</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">Se guardan en este navegador (localStorage), no en el proyecto.</p>
+    </fieldset>
+
+    <fieldset>
+      <h2>Exportar</h2>
+      <div class="btnRow">
+        <button id="copyBtn">Copiar config</button>
+      </div>
+      <pre id="exportBox"></pre>
+    </fieldset>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+// ============================================================
+// Misma técnica que public/src/render.js + rider.js: un conjunto
+// de puntos con nombre (el "rig") + primitivas de canvas 2D
+// (arc, line, polígono) para dibujarlo. Acá el rig es fijo
+// (copiado de rider.js) y lo único editable es la apariencia.
+// ============================================================
+
+const SCALE = 6;
+const ORIGIN = { x: 360, y: 520 };
+
+// Postura normal y postura "recogida" (Space), copiadas de rider.js.
+// Coordenadas locales al frame de la escoba: +x adelante, +y abajo.
+const POSE_RIDE = {
+  pelvis: { x: -16, y: -15 }, chest: { x: -2, y: -33 }, head: { x: 6, y: -51 },
+  kneeF: { x: 2, y: 3 }, footF: { x: -7, y: 21 },
+  kneeB: { x: -7, y: 5 }, footB: { x: -16, y: 23 },
+};
+const POSE_TUCK = {
+  pelvis: { x: -12, y: -19 }, chest: { x: 0, y: -31 }, head: { x: 9, y: -41 },
+  kneeF: { x: 8, y: -14 }, footF: { x: 1, y: -2 },
+  kneeB: { x: 1, y: -12 }, footB: { x: -5, y: 0 },
+};
+const GRIPS = { handF: { x: 20, y: -3 }, handB: { x: 34, y: -2 } };
+const BROOM_HALF = 55;
+
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = clamp(((n >> 16) & 255) + amt, 0, 255);
+  const g = clamp(((n >> 8) & 255) + amt, 0, 255);
+  const b = clamp((n & 255) + amt, 0, 255);
+  return `rgb(${r},${g},${b})`;
+}
+
+function getPose(tuckT) {
+  const p = {};
+  for (const k of Object.keys(POSE_RIDE)) {
+    p[k] = { x: lerp(POSE_RIDE[k].x, POSE_TUCK[k].x, tuckT), y: lerp(POSE_RIDE[k].y, POSE_TUCK[k].y, tuckT) };
+  }
+  p.handF = { ...GRIPS.handF };
+  p.handB = { ...GRIPS.handB };
+  return p;
+}
+
+function circle(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+
+function limb(ctx, a, m, b, w, color) {
+  ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(m.x, m.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  ctx.fillStyle = '#2b2438';
+  circle(ctx, b.x, b.y, w * 0.65);
+}
+function limbSeg(ctx, a, b, w, color) {
+  ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+}
+
+function drawTorso(ctx, pelvis, chest, color, dark, rune, runeColor) {
+  const dx = chest.x - pelvis.x, dy = chest.y - pelvis.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const nx = -dy / d, ny = dx / d;
+  ctx.beginPath();
+  ctx.moveTo(chest.x + nx * 10, chest.y + ny * 10);
+  ctx.lineTo(chest.x - nx * 10, chest.y - ny * 10);
+  ctx.lineTo(pelvis.x - nx * 15, pelvis.y - ny * 15);
+  ctx.lineTo(pelvis.x + nx * 15, pelvis.y + ny * 15);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  const bx = lerp(pelvis.x, chest.x, 0.25), by = lerp(pelvis.y, chest.y, 0.25);
+  ctx.moveTo(bx + nx * 13, by + ny * 13);
+  ctx.lineTo(bx - nx * 13, by - ny * 13);
+  ctx.stroke();
+  if (rune) {
+    const rx = lerp(pelvis.x, chest.x, 0.55), ry = lerp(pelvis.y, chest.y, 0.55);
+    ctx.strokeStyle = runeColor;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(rx, ry, 5, 0, Math.PI * 2);
+    ctx.moveTo(rx - 5, ry); ctx.lineTo(rx + 5, ry);
+    ctx.moveTo(rx, ry - 5); ctx.lineTo(rx, ry + 5);
+    ctx.stroke();
+  }
+}
+
+function drawHead(ctx, head, chest, ap, dark) {
+  let ux = head.x - chest.x, uy = head.y - chest.y;
+  const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+  const px = -uy, py = ux;
+
+  if (ap.hat === 'capucha') {
+    ctx.fillStyle = ap.hatColor;
+    ctx.beginPath();
+    ctx.moveTo(head.x + px * 13, head.y + py * 13);
+    ctx.quadraticCurveTo(head.x + ux * 24 - px * 6, head.y + uy * 24 - py * 6, head.x + ux * 15, head.y + uy * 15);
+    ctx.quadraticCurveTo(head.x + ux * 24 + px * 6, head.y + uy * 24 + py * 6, head.x - px * 13, head.y - py * 13);
+    ctx.quadraticCurveTo(head.x - ux * 4, head.y - uy * 4, head.x + px * 13, head.y + py * 13);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.fillStyle = ap.skin;
+  circle(ctx, head.x, head.y, 11);
+
+  if (ap.beard) {
+    ctx.fillStyle = '#ddd6c8';
+    circle(ctx, head.x - ux * 6, head.y - uy * 6, 6);
+  }
+
+  if (ap.hat === 'cono' || ap.hat === 'ala-ancha') {
+    const brimRx = ap.hat === 'ala-ancha' ? 22 : 16, brimRy = ap.hat === 'ala-ancha' ? 6 : 5;
+    const coneLen = ap.hat === 'ala-ancha' ? 18 : 30;
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.ellipse(head.x + ux * 7, head.y + uy * 7, brimRx, brimRy, Math.atan2(py, px), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(head.x + ux * 8 + px * 10, head.y + uy * 8 + py * 10);
+    ctx.lineTo(head.x + ux * 8 - px * 10, head.y + uy * 8 - py * 10);
+    ctx.lineTo(head.x + ux * coneLen - px * 6, head.y + uy * coneLen - py * 6);
+    ctx.closePath();
+    ctx.fillStyle = ap.hatColor;
+    ctx.fill();
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(head.x + ux * 9 + px * 9, head.y + uy * 9 + py * 9);
+    ctx.lineTo(head.x + ux * 9 - px * 9, head.y + uy * 9 - py * 9);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = shade(ap.hatColor, -40);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(head.x, head.y, 11.5, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.stroke();
+  }
+}
+
+function drawBroom(ctx) {
+  const tipX = BROOM_HALF, tailX = -BROOM_HALF;
+  ctx.strokeStyle = '#8a5a2b'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(tailX + 14, 0); ctx.lineTo(tipX, 0); ctx.stroke();
+  ctx.strokeStyle = '#5d3a17'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(tailX + 14, -2); ctx.lineTo(tipX, -2); ctx.stroke();
+  ctx.strokeStyle = '#c9a04e'; ctx.lineWidth = 3;
+  for (let i = -3; i <= 3; i++) {
+    const a = Math.PI + i * 0.13;
+    ctx.beginPath();
+    ctx.moveTo(tailX + 16, 0);
+    ctx.lineTo(tailX + 16 + Math.cos(a) * (30 - Math.abs(i) * 2), Math.sin(a) * (30 - Math.abs(i) * 2));
+    ctx.stroke();
+  }
+  ctx.strokeStyle = '#7a4a20'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(tailX + 12, -6); ctx.lineTo(tailX + 12, 6); ctx.stroke();
+}
+
+function drawCape(ctx, chest, color, t) {
+  const n = 6, seg = 11;
+  let x = chest.x, y = chest.y;
+  const pts = [{ x, y }];
+  for (let i = 1; i <= n; i++) {
+    const sway = Math.sin(t * 1.6 + i * 0.6) * 3;
+    x -= seg * 0.8;
+    y += seg * 0.35 + sway * 0.3;
+    pts.push({ x, y });
+  }
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y - 6);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y - (10 - i));
+  for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i].x, pts[i].y + (10 - i));
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.92;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function drawSkeleton(ctx, p) {
+  ctx.font = (11 / SCALE) + 'px sans-serif';
+  for (const k of Object.keys(p)) {
+    const pt = p[k];
+    ctx.fillStyle = k.startsWith('hand') ? '#ff4d6a' : '#2bff9c';
+    circle(ctx, pt.x, pt.y, 1.6);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(k, pt.x + 3, pt.y - 3);
+  }
+}
+
+function drawCharacter(ctx, ap, tuckT, t, showSkeleton) {
+  const p = getPose(tuckT);
+  const dark = shade(ap.team, -70);
+  drawCape(ctx, p.chest, ap.cape, t);
+  limb(ctx, p.pelvis, p.kneeB, p.footB, 9, shade(dark, -15));
+  limbSeg(ctx, p.chest, p.handB, 8, shade(dark, -10));
+  drawBroom(ctx);
+  limb(ctx, p.pelvis, p.kneeF, p.footF, 10, dark);
+  drawTorso(ctx, p.pelvis, p.chest, ap.team, dark, ap.rune, ap.runeColor);
+  limbSeg(ctx, p.chest, p.handF, 9, ap.team);
+  ctx.fillStyle = ap.skin;
+  circle(ctx, p.handF.x, p.handF.y, 5.5);
+  circle(ctx, p.handB.x, p.handB.y, 5);
+  drawHead(ctx, p.head, p.chest, ap, dark);
+  if (showSkeleton) drawSkeleton(ctx, p);
+}
+
+// ---------------- Estado y wiring de la UI ----------------
+
+let appearance = {
+  name: '', team: '#3fc0ff', skin: '#e8c39a', hat: 'cono', hatColor: '#3fc0ff',
+  beard: false, cape: '#155f92', rune: false, runeColor: '#ffd76a',
+};
+let tuckAmount = 0;
+let showSkeleton = false;
+
+const $ = id => document.getElementById(id);
+
+function syncInputsFromAppearance() {
+  $('nameInput').value = appearance.name;
+  $('teamColor').value = appearance.team;
+  $('skinColor').value = appearance.skin;
+  $('hatSelect').value = appearance.hat;
+  $('hatColor').value = appearance.hatColor;
+  $('beardCheck').checked = appearance.beard;
+  $('capeColor').value = appearance.cape;
+  $('runeCheck').checked = appearance.rune;
+  $('runeColor').value = appearance.runeColor;
+}
+
+$('nameInput').oninput = e => appearance.name = e.target.value;
+$('teamColor').oninput = e => appearance.team = e.target.value;
+$('skinColor').oninput = e => appearance.skin = e.target.value;
+$('hatSelect').onchange = e => appearance.hat = e.target.value;
+$('hatColor').oninput = e => appearance.hatColor = e.target.value;
+$('beardCheck').onchange = e => appearance.beard = e.target.checked;
+$('capeColor').oninput = e => appearance.cape = e.target.value;
+$('runeCheck').onchange = e => appearance.rune = e.target.checked;
+$('runeColor').oninput = e => appearance.runeColor = e.target.value;
+$('tuckRange').oninput = e => tuckAmount = e.target.value / 100;
+$('skeletonCheck').onchange = e => showSkeleton = e.target.checked;
+
+$('randomBtn').onclick = () => {
+  const teamPalette = ['#3fc0ff', '#ff8a3c', '#7f4fff', '#31c46c', '#e64c7a', '#c9a04e', '#4fd1c5', '#e2453c'];
+  const skinPalette = ['#e8c39a', '#c98f5e', '#8a5a34', '#f2d9b8', '#5a3d2b'];
+  const team = teamPalette[Math.floor(Math.random() * teamPalette.length)];
+  appearance.team = team;
+  appearance.skin = skinPalette[Math.floor(Math.random() * skinPalette.length)];
+  appearance.hat = ['cono', 'ala-ancha', 'capucha'][Math.floor(Math.random() * 3)];
+  appearance.hatColor = Math.random() < 0.6 ? team : teamPalette[Math.floor(Math.random() * teamPalette.length)];
+  appearance.beard = Math.random() < 0.5;
+  appearance.cape = shade(team, -70);
+  appearance.rune = Math.random() < 0.4;
+  syncInputsFromAppearance();
+};
+
+// ---------------- Variantes guardadas (localStorage) ----------------
+
+const STORAGE_KEY = 'escobaVoladoraSkins';
+const loadPresets = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } };
+const savePresets = list => localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+
+function renderPresetList() {
+  const list = loadPresets();
+  const el = $('presetList');
+  el.innerHTML = '';
+  if (!list.length) { el.innerHTML = '<p class="hint">Todavía no guardaste ninguna variante.</p>'; return; }
+  list.forEach((preset, i) => {
+    const row = document.createElement('div');
+    row.className = 'presetRow';
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch'; swatch.style.background = preset.team;
+    const name = document.createElement('span');
+    name.className = 'presetName'; name.textContent = preset.name || 'Sin nombre';
+    const loadBtn = document.createElement('button');
+    loadBtn.textContent = 'Cargar'; loadBtn.className = 'small';
+    loadBtn.onclick = () => { appearance = { ...preset }; syncInputsFromAppearance(); };
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '×'; delBtn.className = 'small danger';
+    delBtn.onclick = () => { const l = loadPresets(); l.splice(i, 1); savePresets(l); renderPresetList(); };
+    row.append(swatch, name, loadBtn, delBtn);
+    el.appendChild(row);
+  });
+}
+
+$('saveBtn').onclick = () => {
+  appearance.name = $('nameInput').value.trim() || 'Sin nombre';
+  const list = loadPresets();
+  list.push({ ...appearance });
+  savePresets(list);
+  renderPresetList();
+  showToast('Variante guardada');
+};
+
+// ---------------- Exportar ----------------
+
+function toConfig(ap) {
+  return `{
+  name: '${ap.name || 'Sin nombre'}',
+  team: '${ap.team}',
+  teamDark: '${shade(ap.team, -70)}',
+  skin: '${ap.skin}',
+  hat: '${ap.hat}',
+  hatColor: '${ap.hatColor}',
+  beard: ${ap.beard},
+  cape: '${ap.cape}',
+  rune: ${ap.rune},
+  runeColor: '${ap.runeColor}',
+}`;
+}
+
+$('copyBtn').onclick = async () => {
+  const cfg = toConfig(appearance);
+  $('exportBox').textContent = cfg;
+  try {
+    await navigator.clipboard.writeText(cfg);
+    showToast('Copiado al portapapeles');
+  } catch {
+    showToast('No se pudo copiar — seleccioná el texto de abajo a mano');
+  }
+};
+
+let toastT;
+function showToast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+// ---------------- Canvas + loop ----------------
+
+const canvas = $('stage');
+const dpr = Math.min(window.devicePixelRatio || 1, 2);
+canvas.width = 720 * dpr; canvas.height = 760 * dpr;
+canvas.style.width = '720px'; canvas.style.height = '760px';
+const ctx = canvas.getContext('2d');
+
+const t0 = performance.now();
+function render() {
+  const t = (performance.now() - t0) / 1000;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, 720, 760);
+  ctx.fillStyle = '#141029';
+  ctx.fillRect(0, 0, 720, 760);
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let gy = 40; gy < 760; gy += 40) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(720, gy); ctx.stroke(); }
+
+  const bob = Math.sin(t * 1.8) * 3; // leve vida propia, como el hover de la escoba real
+  ctx.save();
+  ctx.translate(ORIGIN.x, ORIGIN.y + bob);
+  ctx.scale(SCALE, SCALE);
+  drawCharacter(ctx, appearance, tuckAmount, t, showSkeleton);
+  ctx.restore();
+
+  requestAnimationFrame(render);
+}
+
+syncInputsFromAppearance();
+renderPresetList();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
