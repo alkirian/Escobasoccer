@@ -5,7 +5,7 @@ export const CFG = {
   // arte y la física comparten exactamente las mismas coordenadas y nada
   // queda desalineado. La cámara es fija: siempre se ve el mapa completo.
   arena: {
-    src: '/1%20mapa.jpeg',
+    src: '1%20mapa.jpeg', // relativo: funciona igual en localhost y en un subpath (GitHub Pages)
     imgW: 2752,
     imgH: 1536,
     L: -1238,        // plano del arco rúnico izquierdo
