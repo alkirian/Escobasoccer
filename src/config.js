@@ -1,25 +1,41 @@
 // Configuración central — todos los números de tuning viven acá.
+
+// Escala del mapa. El mundo usa píxeles de la imagen, así que agrandar el
+// mapa es estirar imagen Y límites por igual: el arte sigue calzando con la
+// física, pero los magos quedan proporcionalmente más chicos y sobra cancha.
+// Subirlo da más espacio para volar (necesario en 2v2); bajarlo aprieta todo.
+const MAP = 1.28;
+
+// Escala del mago y su escoba. Es independiente del mapa a propósito: agrandar
+// la cancha (MAP) achica a los personajes en pantalla, y este número los
+// devuelve a un tamaño legible sin tocar los límites del campo. Multiplica la
+// escoba, las posturas del ragdoll, los radios de colisión y los grosores de
+// dibujo por igual, así el personaje crece entero y no deformado.
+const CHAR = 1.4;
+
 export const CFG = {
-  // Arena — el mapa ES la imagen "1 mapa.jpeg" (2752x1536).
+  charScale: CHAR,
+  // Arena — el mapa ES la imagen "1 mapa.jpeg" (2752x1536), escalada por MAP.
   // El mundo usa píxeles de esa imagen con el origen en su centro, así el
   // arte y la física comparten exactamente las mismas coordenadas y nada
   // queda desalineado. La cámara es fija: siempre se ve el mapa completo.
   arena: {
     src: '1%20mapa.jpeg', // relativo: funciona igual en localhost y en un subpath (GitHub Pages)
-    imgW: 2752,
-    imgH: 1536,
-    L: -1238,        // plano del arco rúnico izquierdo
-    R: 1238,         // plano del arco rúnico derecho
-    T: -730,         // techo invisible, al ras del cielo
-    B: 405,          // superficie del campo (césped), delante del parapeto
-    portalY: 76,     // centro de los arcos, medido sobre la imagen
-    portalR: 185,    // media altura del hueco del arco
-    suction: 620,    // atracción mágica cerca de la boca del arco
+    scale: MAP,
+    imgW: 2752 * MAP,
+    imgH: 1536 * MAP,
+    L: -1238 * MAP,      // plano del arco rúnico izquierdo
+    R: 1238 * MAP,       // plano del arco rúnico derecho
+    T: -730 * MAP,       // techo invisible, al ras del cielo
+    B: 405 * MAP,        // superficie del campo (césped), delante del parapeto
+    portalY: 76 * MAP,   // centro de los arcos, medido sobre la imagen
+    portalR: 185 * MAP,  // media altura del hueco del arco
+    suction: 620,        // atracción mágica cerca de la boca del arco
   },
 
   // Escoba — cuerpo rígido dominante
   broom: {
-    halfLen: 55,
+    halfLen: 55 * CHAR,
     gravity: 130,        // la escoba flota mágicamente: desciende suave sin gas
     thrust: 1150,        // aceleración con LMB
     dragLin: 0.6,        // resistencia del aire lineal
@@ -30,9 +46,14 @@ export const CFG = {
     angAccMax: 62,       // torque máximo (rad/s²)
     tuckAngMul: 1.65,    // recogido → rota más rápido
     overrideMul: 3.2,    // giro extra cuando el golpe dirigido toma el control
-    inertia: 2600,       // inercia rotacional (fuerzas en un punto)
+    // Inercia rotacional. Escala con CHAR² como una barra real (I ∝ L²): una
+    // escoba más larga recibe más torque de un golpe en la punta, pero también
+    // cuesta más girarla, así el balance de los choques no cambia al agrandar.
+    // El apuntado con el mouse no pasa por acá (usa aceleración directa), así
+    // que la respuesta del control queda idéntica.
+    inertia: 2600 * CHAR * CHAR,
     bounce: 0.42,        // rebote contra muros
-    tipR: 9,             // radio de colisión de las puntas
+    tipR: 9 * CHAR,      // radio de colisión de las puntas
   },
 
   // Latigazo corporal — el "dodge" del juego.
@@ -67,8 +88,30 @@ export const CFG = {
     // el jugador VE adentro efectivamente conecte. Prometer de menos.
     shownRange: 0.85,
     aimAssist: 0.85,      // 0 = física pura, 1 = va exacto al cursor
-    aimedPower: 1150,     // velocidad que imprime un golpe dirigido bien dado
+    aimedPower: 1250,     // velocidad base de un golpe dirigido bien dado
     aimedMinPower: 620,   // piso, para que un roce dirigido igual sirva
+
+    // --- Potencia del golpe ---
+    // Se multiplica por cuánto se mantuvo Space y por cuánta energía de orbes
+    // hay en la reserva. Un toque sin energía sale a ~1250; un cañonazo a
+    // fondo con el frasco lleno pasa de 3000.
+    chargeFull: 0.8,      // mantener Space hasta acá da la carga máxima
+    chargeBonus: 0.85,    // +85% de potencia a carga completa
+    energyBonus: 0.7,     // +70% adicional con la reserva llena
+    energyCost: 30,       // lo que gasta un golpe (0 = que no gaste nada)
+
+    // --- Tiro de fuego ---
+    // Con media reserva o más, el golpe sale INFLAMADO: suma potencia encima
+    // de todo lo anterior y prende la pelota. Es un umbral y no una rampa a
+    // propósito: el jugador tiene que poder mirar el frasco y saber si le
+    // toca el cañonazo, y guardar energía deja de ser algo abstracto.
+    fireThreshold: 0.5,   // fracción del frasco necesaria
+    fireBonus: 0.7,       // +70% adicional cuando sale inflamado
+    // Piso garantizado del tiro de fuego. La velocidad normal depende de con
+    // cuánta velocidad llegó el pie al contacto, así que un golpe inflamado
+    // mal conectado podía salir flojo — y gastar media reserva para eso se
+    // siente a robo. Con el piso, prender la pelota SIEMPRE es un cañonazo.
+    fireMinPower: 2000,
     spinLead: 2.4,        // rad de arco antes del contacto: cuanto más, más vuelta
     // Estocada: al soltar, el personaje se lanza hacia la pelota lo justo para
     // llegar dentro de la ventana del latigazo. Sin esto el brazo de palanca
@@ -103,7 +146,15 @@ export const CFG = {
     dragLin: 0.2,        // más resistencia → más lenta, ventana de control mayor
     dragQuad: 0.0006,
     bounce: 0.68,        // restitución contra muros
-    maxSpeed: 1350,
+    // Techo alto a propósito: el juego normal rara vez pasa de ~1200, así que
+    // esto no acelera el partido — es el margen que necesita el golpe cargado
+    // para poder ser realmente más fuerte en vez de recortarse contra el tope.
+    // El drag cuadrático frena el cañonazo enseguida, así que un tiro a 3600
+    // recorre ~1500 (media cancha) a toda velocidad y después se normaliza:
+    // llega al arco desde el medio sin volverse imposible de defender.
+    maxSpeed: 3600,
+    // Cuánto dura prendida la pelota tras un tiro de fuego
+    fireTime: 2.4,
     bodyKick: 0.85,      // transferencia de golpe del cuerpo (a máxima velocidad de contacto)
     feetKick: 1.3,       // los pies pegan más fuerte (brake kick / flick)
     broomKick: 0.7,      // la punta de la escoba: precisa pero no dominante
@@ -151,6 +202,22 @@ export const CFG = {
     speedCapMul: 1.55,   // deja superar el techo normal de velocidad
   },
 
+  // Embestidas: empujar y desestabilizar al rival.
+  // La fuerza sale de la velocidad de ACERCAMIENTO entre las dos escobas, así
+  // que embestir a fondo mueve de verdad y rozarse no hace nada. Sirve como
+  // jugada: sacar al rival de posición antes de que llegue a la pelota.
+  ram: {
+    minSpeed: 240,      // por debajo de esto no empuja: rozarse no es embestir
+    push: 1.25,         // fracción de la velocidad de acercamiento que se transfiere
+    maxPush: 1250,      // tope del empujón
+    spin: 7,            // desestabilización: giro que le arruina el apuntado
+    bodyKnock: 0.0032,  // cuánto sale despedido el ragdoll de la víctima
+    recoil: 0.3,        // lo que le cuesta al que embiste (riesgo/recompensa)
+    allyMul: 0.22,      // a un compañero apenas se lo mueve
+    cooldown: 0.22,     // no se puede empujar en ráfaga
+    freeStuck: 520,     // un empujón fuerte despega al que estaba clavado
+  },
+
   // Escoba clavada: solo en choques frontales fuertes
   stuck: {
     // Medido: el drag come velocidad en la aproximación, así que un choque
@@ -170,13 +237,24 @@ export const CFG = {
     startZoom: 2.6,      // arranca cerca del mago para ver su skin
     holdFrac: 0.34,      // fracción inicial en la que se queda cerca
   },
+  // Explosión de gol: nadie se queda parado mirando. La onda cubre casi toda
+  // la cancha y manda a los magos por el aire dando vueltas — el gol se siente
+  // aunque estuvieras del otro lado del campo.
   goalBlast: {
     charge: 0.32,        // el portal acumula energía antes de reventar
-    radius: 900,         // alcance de la onda expansiva
-    force: 2100,         // empuje sobre los jugadores
-    spin: 15,            // giro que le imprime a las escobas
-    slowmo: 0.28,
-    slowmoTime: 1.1,
+    // Alcance mayor que la diagonal de la cancha (≈3490): NADIE se salva.
+    // Medido: con 1700 el jugador del arco opuesto no se enteraba del gol, y
+    // ver a uno volar mientras el otro sigue como si nada mata el momento.
+    radius: 3600,
+    force: 4200,         // empuje sobre los jugadores
+    minPush: 0.28,       // piso del falloff: hasta el más lejano se lleva un tirón
+    slam: 0.5,           // sesgo hacia abajo → los estampa contra el campo
+    spin: 30,            // giro que le imprime a las escobas
+    bodyKick: 0.012,     // cuánto se despega el ragdoll de su propia escoba
+    shake: 46,
+    flash: 0.5,          // destello blanco de pantalla (segundos)
+    slowmo: 0.22,
+    slowmoTime: 1.25,
   },
 
   // Partido

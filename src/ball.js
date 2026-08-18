@@ -12,6 +12,16 @@ export class Ball {
     this.trail = [];
     this.scale = 1;      // para animación de gol (succión al portal)
     this.frozen = false;
+    // Fuego: lo prende un golpe cargado con media reserva o más. Es puramente
+    // expresivo (la potencia ya se aplicó al impulso), pero es la señal de
+    // "esto viene con todo" que se lee de un vistazo desde el otro arco.
+    this.fire = 0;       // 0..1, intensidad actual
+    this.fireT = 0;
+  }
+
+  ignite() {
+    this.fireT = CFG.ball.fireTime;
+    this.fire = 1;
   }
 
   update(dt) {
@@ -31,7 +41,14 @@ export class Ball {
     this.spin = clamp(this.vel.x / 60, -12, 12);
     this.rot += this.spin * dt;
 
-    this.trail.push({ x: this.pos.x, y: this.pos.y, sp });
+    if (this.fireT > 0) {
+      this.fireT -= dt;
+      this.fire = clamp(this.fireT / CFG.ball.fireTime, 0, 1);
+    } else {
+      this.fire = 0;
+    }
+
+    this.trail.push({ x: this.pos.x, y: this.pos.y, sp, fire: this.fire });
     if (this.trail.length > 18) this.trail.shift();
   }
 
@@ -47,5 +64,7 @@ export class Ball {
     this.scale = 1;
     this.frozen = false;
     this.rot = 0;
+    this.fire = 0;
+    this.fireT = 0;
   }
 }

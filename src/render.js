@@ -5,6 +5,12 @@ import { CFG } from './config.js';
 import { portalCenter } from './arena.js';
 import { clamp, lerp } from './utils.js';
 
+// Escala del personaje. Las POSICIONES ya vienen escaladas desde la física
+// (el ragdoll usa posturas multiplicadas por esto), así que acá sólo hay que
+// escalar lo que se dibuja "encima" de esas posiciones: grosores de trazo,
+// radios de cabeza y manos, y la geometría del sombrero y la escoba.
+const S = CFG.charScale;
+
 export class Renderer {
   constructor(canvas, ctx) {
     this.canvas = canvas;
@@ -39,8 +45,16 @@ export class Renderer {
     world.particles.draw(ctx);
 
     this._ballTrail(ctx, world.ball);
-    if (world.playerB) this._player(ctx, world.playerB, CFG.colors.p2, CFG.colors.p2Dark, world);
-    this._player(ctx, world.playerA, CFG.colors.p1, CFG.colors.p1Dark, world);
+    // El humano se dibuja último para que nunca quede tapado por otro cuerpo
+    const list = world.players || [world.playerA, world.playerB].filter(Boolean);
+    for (const pl of list) {
+      if (pl === world.playerA) continue;
+      const c = this._teamColors(pl);
+      this._player(ctx, pl, c.main, c.dark, world);
+    }
+    const cA = this._teamColors(world.playerA);
+    this._player(ctx, world.playerA, cA.main, cA.dark, world);
+    if (list.length > 2 && !world.botsMode) this._selfMarker(ctx, world.playerA, cA.main);
     this._ball(ctx, world.ball);
 
     if (world.debug) this._debug(ctx, world);
@@ -240,10 +254,10 @@ export class Renderer {
   // visual de "a qué altura estoy" en una vista lateral, y ancla a los
   // personajes al piso pintado en vez de dejarlos flotando pegados encima.
   _shadows(ctx, world) {
-    for (const pl of [world.playerA, world.playerB].filter(Boolean)) {
+    for (const pl of (world.players || [world.playerA, world.playerB].filter(Boolean))) {
       const p = pl.rider.points;
-      this._groundShadow(ctx, pl.broom.pos.x, pl.broom.pos.y, 62);
-      this._groundShadow(ctx, p.pelvis.x, p.pelvis.y, 26);
+      this._groundShadow(ctx, pl.broom.pos.x, pl.broom.pos.y, 62 * S);
+      this._groundShadow(ctx, p.pelvis.x, p.pelvis.y, 26 * S);
     }
     this._groundShadow(ctx, world.ball.pos.x, world.ball.pos.y, world.ball.r * 1.05);
   }
@@ -278,7 +292,7 @@ export class Renderer {
       for (let i = 1; i < r.footTrail.length; i++) {
         const t = i / r.footTrail.length;
         ctx.globalAlpha = t * 0.5;
-        ctx.lineWidth = 2 + t * 7;
+        ctx.lineWidth = (2 + t * 7) * S;
         ctx.beginPath();
         ctx.moveTo(r.footTrail[i - 1].x, r.footTrail[i - 1].y);
         ctx.lineTo(r.footTrail[i].x, r.footTrail[i].y);
@@ -290,15 +304,51 @@ export class Renderer {
     // Indicador de carga: sin esto el jugador no sabe que el golpe está listo
     const charge = r.chargeAmount();
     if (charge > 0) {
-      const ready = charge >= 1;
+      const ready = r.isArmed();          // ya alcanza para disparar
+      const full = charge >= 0.999;       // potencia máxima de carga
+      // La energía disponible engrosa y tiñe el anillo: se ve que el golpe
+      // va a salir más fuerte ANTES de soltarlo.
+      const eFrac = clamp((player.energy || 0) / CFG.boost.max, 0, 1);
+      // Con media reserva o más el golpe sale INFLAMADO: el anillo se vuelve
+      // fuego para que se sepa antes de soltar, no después.
+      const fire = eFrac >= CFG.whip.fireThreshold;
+      const rOut = 74 * S, rIn = 64 * S;
       ctx.save();
       ctx.translate(b.pos.x, b.pos.y);
-      ctx.strokeStyle = ready ? '#ffd76a' : color;
-      ctx.globalAlpha = ready ? 0.55 + 0.35 * Math.sin(this.t * 14) : 0.5;
-      ctx.lineWidth = ready ? 5 : 3.5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath(); ctx.arc(0, 0, rOut, 0, 7); ctx.stroke();
+      ctx.strokeStyle = fire ? '#ff7a24' : (full ? '#fff0b0' : (ready ? '#ffd76a' : color));
+      ctx.globalAlpha = full ? 0.7 + 0.3 * Math.sin(this.t * 16) : (ready ? 0.85 : 0.45);
+      ctx.lineWidth = (3.5 + charge * 4 + eFrac * 2.5) * S;
+      if (full || fire) {
+        ctx.shadowColor = fire ? '#ff7a24' : '#ffd76a';
+        ctx.shadowBlur = fire ? 24 : 16;
+      }
       ctx.beginPath();
-      ctx.arc(0, 0, 74, -Math.PI / 2, -Math.PI / 2 + charge * Math.PI * 2);
+      ctx.arc(0, 0, rOut, -Math.PI / 2, -Math.PI / 2 + charge * Math.PI * 2);
       ctx.stroke();
+      ctx.shadowBlur = 0;
+      // anillo interior: cuánta energía va a sumar la reserva al golpe
+      if (eFrac > 0.02) {
+        ctx.strokeStyle = fire ? '#ffb020' : '#9fe6ff';
+        ctx.globalAlpha = 0.35 + eFrac * 0.4;
+        ctx.lineWidth = 2.5 * S;
+        ctx.beginPath();
+        ctx.arc(0, 0, rIn, -Math.PI / 2, -Math.PI / 2 + eFrac * Math.PI * 2);
+        ctx.stroke();
+      }
+      // Lenguas de fuego girando alrededor: el aviso de que esto va a doler
+      if (fire) {
+        ctx.globalAlpha = 0.55 + 0.35 * Math.sin(this.t * 12);
+        ctx.fillStyle = '#ff8a2c';
+        for (let i = 0; i < 6; i++) {
+          const a = this.t * 2.4 + i * (Math.PI / 3);
+          ctx.beginPath();
+          ctx.arc(Math.cos(a) * rOut, Math.sin(a) * rOut, 4 * S, 0, 7);
+          ctx.fill();
+        }
+      }
       ctx.globalAlpha = 1;
       ctx.restore();
 
@@ -353,11 +403,11 @@ export class Renderer {
     ctx.beginPath();
     ctx.moveTo(r.cape[0].x, r.cape[0].y);
     for (let i = 1; i < r.cape.length; i++) {
-      const w = 12 - i * 1.5;
+      const w = (12 - i * 1.5) * S;
       ctx.lineTo(r.cape[i].x, r.cape[i].y + w);
     }
     for (let i = r.cape.length - 1; i >= 0; i--) {
-      const w = 12 - i * 1.5;
+      const w = (12 - i * 1.5) * S;
       ctx.lineTo(r.cape[i].x, r.cape[i].y - w);
     }
     ctx.closePath();
@@ -367,29 +417,61 @@ export class Renderer {
     ctx.globalAlpha = 1;
 
     // Pierna trasera (más oscura → profundidad)
-    this._limb(ctx, p.pelvis, p.kneeB, p.footB, 9, this._shade(dark, -15));
+    this._limb(ctx, p.pelvis, p.kneeB, p.footB, 9 * S, this._shade(dark, -15));
     // Brazo trasero
-    this._limbSeg(ctx, p.chest, p.handB, 8, this._shade(dark, -10));
+    this._limbSeg(ctx, p.chest, p.handB, 8 * S, this._shade(dark, -10));
 
     // Escoba
     this._broom(ctx, b, player);
 
     // Pierna delantera
-    this._limb(ctx, p.pelvis, p.kneeF, p.footF, 10, dark);
+    this._limb(ctx, p.pelvis, p.kneeF, p.footF, 10 * S, dark);
 
     // Torso (túnica): trapecio pelvis→pecho
     this._torso(ctx, p.pelvis, p.chest, color, dark);
 
     // Brazo delantero
-    this._limbSeg(ctx, p.chest, p.handF, 9, color);
+    this._limbSeg(ctx, p.chest, p.handF, 9 * S, color);
 
     // Manos (siempre en el palo)
     ctx.fillStyle = CFG.colors.skin;
-    ctx.beginPath(); ctx.arc(p.handF.x, p.handF.y, 5.5, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(p.handB.x, p.handB.y, 5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.handF.x, p.handF.y, 5.5 * S, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.handB.x, p.handB.y, 5 * S, 0, 7); ctx.fill();
 
     // Cabeza + sombrero
     this._head(ctx, p.head, p.chest, color, dark);
+  }
+
+  // Colores por equipo. En 2v2 el compañero usa una variante más clara del
+  // mismo color: se distingue de vos sin que se confunda con el rival.
+  _teamColors(pl) {
+    if (!pl) return { main: CFG.colors.p1, dark: CFG.colors.p1Dark };
+    const p1 = pl.team === 'p1';
+    const main = p1 ? CFG.colors.p1 : CFG.colors.p2;
+    const dark = p1 ? CFG.colors.p1Dark : CFG.colors.p2Dark;
+    if (!pl.index) return { main, dark };
+    return { main: this._shade(main, 46), dark: this._shade(dark, 34) };
+  }
+
+  // Marca sobre el jugador humano: con cuatro magos en pantalla hay que
+  // poder encontrarse de un vistazo.
+  _selfMarker(ctx, pl, color) {
+    const y = pl.broom.pos.y - 96 * S - Math.sin(this.t * 3) * 5;
+    const x = pl.broom.pos.x;
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y + 16 * S);
+    ctx.lineTo(x - 11 * S, y);
+    ctx.lineTo(x + 11 * S, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(10,8,25,0.55)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   _shade(hex, amt) {
@@ -431,21 +513,21 @@ export class Renderer {
     const d = Math.hypot(dx, dy) || 1;
     const nx = -dy / d, ny = dx / d;
     ctx.beginPath();
-    ctx.moveTo(chest.x + nx * 10, chest.y + ny * 10);
-    ctx.lineTo(chest.x - nx * 10, chest.y - ny * 10);
+    ctx.moveTo(chest.x + nx * 10 * S, chest.y + ny * 10 * S);
+    ctx.lineTo(chest.x - nx * 10 * S, chest.y - ny * 10 * S);
     // faldón acampanado en la pelvis
-    ctx.lineTo(pelvis.x - nx * 15, pelvis.y - ny * 15);
-    ctx.lineTo(pelvis.x + nx * 15, pelvis.y + ny * 15);
+    ctx.lineTo(pelvis.x - nx * 15 * S, pelvis.y - ny * 15 * S);
+    ctx.lineTo(pelvis.x + nx * 15 * S, pelvis.y + ny * 15 * S);
     ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
     // cinturón
     ctx.strokeStyle = dark;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 4 * S;
     ctx.beginPath();
     const bx = lerp(pelvis.x, chest.x, 0.25), by = lerp(pelvis.y, chest.y, 0.25);
-    ctx.moveTo(bx + nx * 13, by + ny * 13);
-    ctx.lineTo(bx - nx * 13, by - ny * 13);
+    ctx.moveTo(bx + nx * 13 * S, by + ny * 13 * S);
+    ctx.lineTo(bx - nx * 13 * S, by - ny * 13 * S);
     ctx.stroke();
   }
 
@@ -458,32 +540,32 @@ export class Renderer {
 
     // cara
     ctx.fillStyle = CFG.colors.skin;
-    ctx.beginPath(); ctx.arc(head.x, head.y, 11, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(head.x, head.y, 11 * S, 0, 7); ctx.fill();
 
     // barba pequeña
     ctx.fillStyle = '#ddd6c8';
     ctx.beginPath();
-    ctx.arc(head.x - ux * 6, head.y - uy * 6, 6, 0, 7);
+    ctx.arc(head.x - ux * 6 * S, head.y - uy * 6 * S, 6 * S, 0, 7);
     ctx.fill();
 
     // sombrero de mago: ala + cono torcido
     ctx.fillStyle = dark;
     ctx.beginPath();
-    ctx.ellipse(head.x + ux * 7, head.y + uy * 7, 16, 5, Math.atan2(py, px), 0, 7);
+    ctx.ellipse(head.x + ux * 7 * S, head.y + uy * 7 * S, 16 * S, 5 * S, Math.atan2(py, px), 0, 7);
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(head.x + ux * 8 + px * 10, head.y + uy * 8 + py * 10);
-    ctx.lineTo(head.x + ux * 8 - px * 10, head.y + uy * 8 - py * 10);
-    ctx.lineTo(head.x + ux * 30 - px * 6, head.y + uy * 30 - py * 6);
+    ctx.moveTo(head.x + (ux * 8 + px * 10) * S, head.y + (uy * 8 + py * 10) * S);
+    ctx.lineTo(head.x + (ux * 8 - px * 10) * S, head.y + (uy * 8 - py * 10) * S);
+    ctx.lineTo(head.x + (ux * 30 - px * 6) * S, head.y + (uy * 30 - py * 6) * S);
     ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
     // banda
     ctx.strokeStyle = dark;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * S;
     ctx.beginPath();
-    ctx.moveTo(head.x + ux * 9 + px * 9, head.y + uy * 9 + py * 9);
-    ctx.lineTo(head.x + ux * 9 - px * 9, head.y + uy * 9 - py * 9);
+    ctx.moveTo(head.x + (ux * 9 + px * 9) * S, head.y + (uy * 9 + py * 9) * S);
+    ctx.lineTo(head.x + (ux * 9 - px * 9) * S, head.y + (uy * 9 - py * 9) * S);
     ctx.stroke();
   }
 
@@ -493,41 +575,43 @@ export class Renderer {
 
     // palo
     ctx.strokeStyle = CFG.colors.wood;
-    ctx.lineWidth = 7;
+    ctx.lineWidth = 7 * S;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(tail.x + d.x * 14, tail.y + d.y * 14);
+    ctx.moveTo(tail.x + d.x * 14 * S, tail.y + d.y * 14 * S);
     ctx.lineTo(tip.x, tip.y);
     ctx.stroke();
     ctx.strokeStyle = CFG.colors.woodDark;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * S;
     ctx.beginPath();
-    ctx.moveTo(tail.x + d.x * 14, tail.y + d.y * 14 - 2);
-    ctx.lineTo(tip.x, tip.y - 2);
+    ctx.moveTo(tail.x + d.x * 14 * S, tail.y + d.y * 14 * S - 2 * S);
+    ctx.lineTo(tip.x, tip.y - 2 * S);
     ctx.stroke();
 
     // ramas (abanico en la cola, tiemblan al acelerar)
     const jitter = b.thrustPower * 2.5;
     ctx.strokeStyle = CFG.colors.straw;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * S;
     for (let i = -3; i <= 3; i++) {
       const a = b.angle + Math.PI + i * 0.13 + Math.sin(this.t * 30 + i * 5) * 0.03 * jitter;
+      const len = (30 - Math.abs(i) * 2) * S;
+      const bx = tail.x + d.x * 16 * S, by = tail.y + d.y * 16 * S;
       ctx.beginPath();
-      ctx.moveTo(tail.x + d.x * 16, tail.y + d.y * 16);
-      ctx.lineTo(tail.x + d.x * 16 + Math.cos(a) * (30 + Math.abs(i) * -2), tail.y + d.y * 16 + Math.sin(a) * (30 + Math.abs(i) * -2));
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + Math.cos(a) * len, by + Math.sin(a) * len);
       ctx.stroke();
     }
     // atadura
     ctx.strokeStyle = '#7a4a20';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 5 * S;
     ctx.beginPath();
-    ctx.moveTo(tail.x + d.x * 12 - d.y * 6, tail.y + d.y * 12 + d.x * 6);
-    ctx.lineTo(tail.x + d.x * 12 + d.y * 6, tail.y + d.y * 12 - d.x * 6);
+    ctx.moveTo(tail.x + (d.x * 12 - d.y * 6) * S, tail.y + (d.y * 12 + d.x * 6) * S);
+    ctx.lineTo(tail.x + (d.x * 12 + d.y * 6) * S, tail.y + (d.y * 12 - d.x * 6) * S);
     ctx.stroke();
 
     // resplandor de propulsión
     if (b.thrustPower > 0.05) {
-      const rad = 42 + b.boostPower * 40;
+      const rad = (42 + b.boostPower * 40) * S;
       const g = ctx.createRadialGradient(tail.x, tail.y, 2, tail.x, tail.y, rad);
       const boost = b.boostPower;
       g.addColorStop(0, `rgba(${160 + boost * 95},${220 - boost * 60},${255 - boost * 160},${(0.5 + boost * 0.4) * b.thrustPower})`);
@@ -544,22 +628,23 @@ export class Renderer {
       ctx.save();
       ctx.globalAlpha = charge * 0.85;
       ctx.strokeStyle = b.boostPower > 0.3 ? '#ffd76a' : '#9fe6ff';
-      ctx.lineWidth = 3 + charge * 3;
+      ctx.lineWidth = (3 + charge * 3) * S;
       ctx.lineCap = 'round';
       ctx.shadowColor = ctx.strokeStyle;
       ctx.shadowBlur = 10 + charge * 14;
       ctx.beginPath();
-      ctx.moveTo(tail.x + d.x * 16, tail.y + d.y * 16);
+      ctx.moveTo(tail.x + d.x * 16 * S, tail.y + d.y * 16 * S);
       ctx.lineTo(tip.x, tip.y);
       ctx.stroke();
       ctx.shadowBlur = 0;
       // runas corriendo hacia la punta
       for (let i = 0; i < 4; i++) {
         const ph = (this.t * (1.6 + charge * 2.6) + i * 0.25) % 1;
-        const px = tail.x + d.x * (16 + ph * 94), py = tail.y + d.y * (16 + ph * 94);
+        const run = (16 + ph * 94) * S;
+        const px = tail.x + d.x * run, py = tail.y + d.y * run;
         ctx.globalAlpha = charge * Math.sin(ph * Math.PI);
         ctx.fillStyle = '#fff6d8';
-        ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
+        ctx.fillRect(px - 1.5 * S, py - 1.5 * S, 3 * S, 3 * S);
       }
       ctx.restore();
       ctx.globalAlpha = 1;
@@ -570,9 +655,9 @@ export class Renderer {
       ctx.save();
       ctx.globalAlpha = b.strain * 0.5;
       ctx.strokeStyle = '#ffd08a';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2 * S;
       ctx.beginPath();
-      ctx.arc(tip.x, tip.y, 10 + Math.sin(this.t * 40) * 3 * b.strain, 0, 7);
+      ctx.arc(tip.x, tip.y, (10 + Math.sin(this.t * 40) * 3 * b.strain) * S, 0, 7);
       ctx.stroke();
       ctx.restore();
       ctx.globalAlpha = 1;
@@ -585,11 +670,23 @@ export class Renderer {
     for (let i = 1; i < ball.trail.length; i++) {
       const t = i / ball.trail.length;
       const a = ball.trail[i];
-      ctx.globalAlpha = t * 0.25 * Math.min(a.sp / 700, 1);
-      ctx.fillStyle = CFG.colors.ballGlow;
-      ctx.beginPath();
-      ctx.arc(a.x, a.y, ball.r * t * 0.9, 0, 7);
-      ctx.fill();
+      const f = a.fire || 0;
+      if (f > 0) {
+        // Cometa: la cola vieja es roja y humosa, la parte nueva blanca. Se
+        // dibuja más ancha que la estela normal para que la pelota inflamada
+        // se distinga desde el otro arco.
+        ctx.globalAlpha = t * (0.2 + 0.55 * f);
+        ctx.fillStyle = t > 0.72 ? '#fff3b0' : (t > 0.4 ? '#ff9c2a' : '#e03a12');
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, ball.r * t * (0.75 + 0.55 * f), 0, 7);
+        ctx.fill();
+      } else {
+        ctx.globalAlpha = t * 0.25 * Math.min(a.sp / 700, 1);
+        ctx.fillStyle = CFG.colors.ballGlow;
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, ball.r * t * 0.9, 0, 7);
+        ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -600,24 +697,39 @@ export class Renderer {
     ctx.save();
     ctx.translate(ball.pos.x, ball.pos.y);
 
-    // glow
-    const g = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 2);
-    g.addColorStop(0, CFG.colors.ballGlow);
-    g.addColorStop(1, 'rgba(0,0,0,0)');
+    const f = ball.fire || 0;
+
+    // glow — cuando está prendida, el halo es una bola de fuego que late
+    const flick = f > 0 ? 1 + 0.12 * Math.sin(this.t * 26) : 1;
+    const g = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * (2 + f * 1.4) * flick);
+    if (f > 0) {
+      g.addColorStop(0, `rgba(255,225,140,${0.55 + f * 0.35})`);
+      g.addColorStop(0.45, `rgba(255,130,30,${0.35 * f + 0.1})`);
+      g.addColorStop(1, 'rgba(180,40,0,0)');
+    } else {
+      g.addColorStop(0, CFG.colors.ballGlow);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+    }
     ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(0, 0, r * 2, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, r * (2 + f * 1.4) * flick, 0, 7); ctx.fill();
 
     ctx.rotate(ball.rot);
-    // cuerpo
+    // cuerpo — al rojo vivo mientras arde
     const bg = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.15, 0, 0, r);
-    bg.addColorStop(0, '#fdf8e8');
-    bg.addColorStop(0.6, CFG.colors.ball);
-    bg.addColorStop(1, '#b3a67e');
+    if (f > 0) {
+      bg.addColorStop(0, '#fffbe8');
+      bg.addColorStop(0.55, f > 0.5 ? '#ffb43c' : '#f0c98a');
+      bg.addColorStop(1, f > 0.5 ? '#d8420f' : '#a8763c');
+    } else {
+      bg.addColorStop(0, '#fdf8e8');
+      bg.addColorStop(0.6, CFG.colors.ball);
+      bg.addColorStop(1, '#b3a67e');
+    }
     ctx.fillStyle = bg;
     ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
 
     // runa (marca la rotación)
-    ctx.strokeStyle = '#8a7440';
+    ctx.strokeStyle = f > 0 ? '#7a2408' : '#8a7440';
     ctx.lineWidth = r * 0.12;
     ctx.beginPath();
     ctx.arc(0, 0, r * 0.55, 0, 7);
@@ -655,6 +767,13 @@ export class Renderer {
     if (world.practice) {
       this._practiceHud(ctx, world, W, H);
       return;
+    }
+
+    // Fogonazo de la explosión de gol: tapa la pantalla un instante y se va.
+    // Va antes del texto para que "¡GOOOL!" salga del blanco, no debajo.
+    if (m.flashT > 0) {
+      ctx.fillStyle = `rgba(255,248,230,${clamp(m.flashT / CFG.goalBlast.flash, 0, 1) * 0.85})`;
+      ctx.fillRect(0, 0, W, H);
     }
 
     const cx = W / 2;
@@ -758,11 +877,11 @@ export class Renderer {
   _practiceHud(ctx, world, W, H) {
     const cx = W / 2;
     ctx.fillStyle = 'rgba(10,8,25,0.62)';
-    this._rrect(ctx, cx - 210, 12, 420, 40, 10);
+    this._rrect(ctx, cx - 250, 12, 500, 40, 10);
     ctx.fill();
     ctx.font = '16px Georgia, serif';
     ctx.fillStyle = '#ffd76a';
-    ctx.fillText('PRÁCTICA — sin rivales ni arcos', cx, 32);
+    ctx.fillText(world.titleText || 'PRÁCTICA — sin rivales ni arcos', cx, 32);
 
     // Último golpe: la lectura que importa para tunear el latigazo
     const s = world.stats;
@@ -782,7 +901,8 @@ export class Renderer {
 
     ctx.font = '15px Georgia, serif';
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText('Mantené ESPACIO y soltá para golpear hacia el cursor  ·  R: reubicar pelota  ·  F3: debug',
+    ctx.fillText(world.hintText
+      || 'Mantené ESPACIO y soltá para golpear hacia el cursor  ·  R: reubicar pelota  ·  F3: debug',
       cx, H - 26);
   }
 
@@ -1025,7 +1145,7 @@ export class Renderer {
       ctx.stroke();
     }
 
-    for (const player of [world.playerA, world.playerB].filter(Boolean)) {
+    for (const player of (world.players || [world.playerA, world.playerB].filter(Boolean))) {
       const r = player.rider;
       const b0 = player.broom;
 

@@ -44,8 +44,32 @@ const touch = new TouchControls(canvas);
 // Posiciones de salida sobre el campo pintado: a media altura del patio,
 // cada uno delante de su propio arco.
 const SPAWN_Y = (CFG.arena.T + CFG.arena.B) / 2;
-const playerA = new Player(CFG.arena.L * 0.56, SPAWN_Y, 0, 'p1');        // izquierda, mira al centro
-const playerB = new Player(CFG.arena.R * 0.56, SPAWN_Y, Math.PI, 'p2');  // derecha, mira al centro
+const HALF_H = (CFG.arena.B - CFG.arena.T) / 2;
+
+// Modo: 1v1 por defecto, 2v2 con ?2v2. En 2v2 los compañeros salen
+// escalonados en altura para que no arranquen encimados.
+const TEAM_SIZE = (params.has('2v2') || params.get('mode') === '2v2') ? 2 : 1;
+
+function makeTeam(team, side) {
+  const x = (side < 0 ? CFG.arena.L : CFG.arena.R) * 0.56;
+  const angle = side < 0 ? 0 : Math.PI;
+  const out = [];
+  for (let i = 0; i < TEAM_SIZE; i++) {
+    // 1 jugador: al medio. 2 jugadores: uno arriba y otro abajo.
+    const off = TEAM_SIZE === 1 ? 0 : (i === 0 ? -0.26 : 0.26) * HALF_H;
+    const pl = new Player(x, SPAWN_Y + off, angle, team);
+    pl.side = side;              // qué portal defiende
+    pl.index = i;
+    out.push(pl);
+  }
+  return out;
+}
+
+const teamA = makeTeam('p1', -1);   // izquierda
+const teamB = makeTeam('p2', +1);   // derecha
+const players = [...teamA, ...teamB];
+const playerA = teamA[0];           // el humano
+const playerB = teamB[0];           // rival principal (compatibilidad)
 const ball = new Ball(0, SPAWN_Y - 120);
 const camera = new Camera(canvas);
 const particles = new Particles();
@@ -56,15 +80,24 @@ touch.onFirstTouch = () => sound.init();
 const orbs = new OrbField();
 
 const world = {
-  playerA, playerB, ball, camera, particles, sound, input, touch, orbs,
+  playerA, playerB, players, teamA, teamB, teamSize: TEAM_SIZE,
+  ball, camera, particles, sound, input, touch, orbs,
   debug: DEBUG, botsMode: BOTS, paused: false,
   match: null,
 };
 const match = new Match(world, { duration: FAST ? 30 : CFG.match.duration });
 world.match = match;
 
-const botB = new Bot(playerB, +1);                        // defiende derecha
-const botA = BOTS ? new Bot(playerA, -1) : null;          // en modo bots, también
+// Un bot por jugador, menos el humano (salvo en modo ?bots, donde juegan todos).
+// En 2v2 los compañeros reciben roles distintos para que no se amontonen:
+// el índice 0 ataca y el 1 se queda más atrás cubriendo.
+const bots = players
+  .filter((pl) => BOTS || pl !== playerA)
+  .map((pl) => {
+    const bot = new Bot(pl, pl.side);
+    bot.role = TEAM_SIZE > 1 && pl.index === 1 ? 'support' : 'striker';
+    return bot;
+  });
 
 // FX hooks para colisiones
 const fx = {
@@ -83,9 +116,9 @@ let debugOn = DEBUG;
 function step(dt) {
   const frozen = match.playersFrozen();
 
-  // Control del jugador humano (o bot A en modo bots)
-  if (botA) {
-    botA.update(dt, world);
+  // Control del jugador humano (en modo ?bots lo maneja su propio bot)
+  if (BOTS) {
+    // todos los jugadores los mueven los bots, más abajo
   } else if (touch.active) {
     // Joystick = dirección relativa, no un punto fijo: se recalcula cada
     // paso desde la posición actual de la escoba, igual que el mouse
@@ -110,9 +143,9 @@ function step(dt) {
     playerA.updateEnergy(dt, input.boost && !frozen);
     input.tick(dt);
   }
-  botB.update(dt, world);
+  for (const bot of bots) bot.update(dt, world);
   if (frozen) {
-    for (const p of [playerA, playerB]) {
+    for (const p of players) {
       p.control.thrust = false;
       p.control.brake = false;
     }
@@ -120,11 +153,14 @@ function step(dt) {
 
   // Física de jugadores. El "target" es lo que convierte el latigazo en un
   // golpe dirigido: dónde está la pelota y hacia dónde quiere mandarla.
-  const targetA = { ball: ball.pos, aim: playerA.control.aim };
-  const targetB = { ball: ball.pos, aim: playerB.control.aim };
-  playerA.update(dt, frozen, targetA);
-  playerB.update(dt, frozen, targetB);
-  for (const pl of [playerA, playerB]) {
+  const mkTarget = (pl) => ({
+    ball: ball.pos,
+    aim: pl.control.aim,
+    energyFrac: pl.energy / CFG.boost.max,
+    spendEnergy: (c) => { pl.energy = Math.max(0, pl.energy - c); },
+  });
+  for (const pl of players) pl.update(dt, frozen, mkTarget(pl));
+  for (const pl of players) {
     collideBroomArena(
       pl.broom,
       (x, y, s) => fx.onImpact(x, y, s, 'wall'),
@@ -145,25 +181,29 @@ function step(dt) {
       pl.stuckAt = null;
     }
   }
-  clampRiderArena(playerA);
-  clampRiderArena(playerB);
+  for (const pl of players) clampRiderArena(pl);
 
-  // Jugador vs jugador (embestidas, empujones, enganches)
-  interactPlayers(playerA, playerB, dt, fx);
+  // Jugador vs jugador: TODOS los pares, también entre compañeros — chocarse
+  // con el propio compañero es parte del caos y del humor del deporte.
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      interactPlayers(players[i], players[j], dt, fx);
+    }
+  }
 
   // Pelota
   if (!ball.frozen) {
     applyPortalSuction(ball, dt);
     ball.update(dt);
-    interactPlayerBall(playerA, ball, dt, fx);
-    interactPlayerBall(playerB, ball, dt, fx);
+    if (ball.fire > 0) particles.fireTrail(ball.pos.x, ball.pos.y, ball.vel.x, ball.vel.y, ball.fire);
+    for (const pl of players) interactPlayerBall(pl, ball, dt, fx);
     const goal = collideBallArena(ball, (x, y, s) => { if (s > 180) fx.onImpact(x, y, s, 'wall'); });
     if (goal && match.state === 'play') match.onGoal(goal);
   }
 
   // Orbes: energía repartida por la arena
   orbs.update(dt);
-  orbs.collect([playerA, playerB], (orb, pl, oy) => {
+  orbs.collect(players, (orb, pl, oy) => {
     pl.addEnergy(CFG.orbs.energy);
     const color = pl.team === 'p1' ? CFG.colors.p1 : CFG.colors.p2;
     particles.orbAbsorb(orb.fx, oy, pl.broom.pos, color);
@@ -171,15 +211,11 @@ function step(dt) {
   });
 
   // Bots: usan el boost cuando persiguen de lejos
-  if (!botA) playerB.updateEnergy(dt, botB.wantsBoost);
-  else {
-    playerA.updateEnergy(dt, botA.wantsBoost);
-    playerB.updateEnergy(dt, botB.wantsBoost);
-  }
+  for (const bot of bots) bot.player.updateEnergy(dt, bot.wantsBoost);
 
   // FX continuos: la estela escala con velocidad y boost — de chispitas a
   // estela energética — para que la velocidad se lea sin tapar el partido.
-  for (const pl of [playerA, playerB]) {
+  for (const pl of players) {
     const b = pl.broom;
     const tail = b.tail(), d = b.dir();
     const color = pl.team === 'p1' ? CFG.colors.p1 : CFG.colors.p2;

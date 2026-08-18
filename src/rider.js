@@ -3,10 +3,28 @@
 // El cuerpo tiene una postura deseada (resortes hacia el frame de la escoba)
 // pero la física puede deformarla. Recuperación gradual, no instantánea.
 import { CFG } from './config.js';
-import { lerp, damp, wrapAngle } from './utils.js';
+import { lerp, damp, wrapAngle, clamp } from './utils.js';
+
+// Todas las posturas se escriben a escala 1 y se multiplican por CFG.charScale
+// al cargar el módulo. Así los números siguen siendo legibles y agrandar al
+// mago es tocar una sola constante en config.
+// `k` NO escala (es una tasa: aceleración por unidad de desplazamiento, y el
+// desplazamiento ya viene escalado). `cap` sí, porque es un tope de
+// aceleración y las fuerzas crecen con el tamaño.
+const S = CFG.charScale;
+const scalePose = (pose) => {
+  const out = {};
+  for (const n of Object.keys(pose)) {
+    const v = pose[n];
+    out[n] = { ...v, x: v.x * S, y: v.y * S };
+    if (v.r != null) out[n].r = v.r * S;
+    if (v.cap != null) out[n].cap = v.cap * S;
+  }
+  return out;
+};
 
 // Postura base de jinete (frame local de la escoba: +x adelante, +y abajo)
-const POSE_RIDE = {
+const POSE_RIDE = scalePose({
   pelvis: { x: -16, y: -15, r: 10, k: 68, cap: 3000 },
   chest:  { x: -2,  y: -33, r: 10, k: 60, cap: 2800 },
   head:   { x: 6,   y: -51, r: 12, k: 46, cap: 2400 },
@@ -14,10 +32,10 @@ const POSE_RIDE = {
   footF:  { x: -7,  y: 21,  r: 7,  k: 26, cap: 1800 },
   kneeB:  { x: -7,  y: 5,   r: 6,  k: 36, cap: 2000 },
   footB:  { x: -16, y: 23,  r: 7,  k: 26, cap: 1800 },
-};
+});
 
 // Postura recogida (Space): compacta, piernas al pecho
-const POSE_TUCK = {
+const POSE_TUCK = scalePose({
   pelvis: { x: -12, y: -19 },
   chest:  { x: 0,   y: -31 },
   head:   { x: 9,   y: -41 },
@@ -25,12 +43,12 @@ const POSE_TUCK = {
   footF:  { x: 1,   y: -2 },
   kneeB:  { x: 1,   y: -12 },
   footB:  { x: -5,  y: 0 },
-};
+});
 
 // Postura estirada (pico del latigazo): las piernas se extienden radialmente
 // ALEJÁNDOSE del agarre. Es lo que pone los pies por fuera del alcance de la
 // escoba y convierte el giro en un golpe de verdad.
-const POSE_EXTEND = {
+const POSE_EXTEND = scalePose({
   pelvis: { x: -18, y: -14 },
   chest:  { x: -2,  y: -33 },
   head:   { x: 6,   y: -51 },
@@ -38,10 +56,10 @@ const POSE_EXTEND = {
   footF:  { x: -60, y: -26 },
   kneeB:  { x: -42, y: -12 },
   footB:  { x: -63, y: -17 },
-};
+});
 
 // Agarres de las manos sobre el palo (siempre fijas ahí)
-const GRIPS = { handF: { x: 20, y: -3 }, handB: { x: 34, y: -2 } };
+const GRIPS = scalePose({ handF: { x: 20, y: -3 }, handB: { x: 34, y: -2 } });
 
 // Pivote del latigazo: el punto medio entre las manos. Que el cuerpo orbite
 // ACÁ y no el centro de la escoba es lo que hace todo el truco — el brazo de
@@ -75,6 +93,10 @@ export class Rider {
     this.aimDir = null;       // dirección hacia la que debe salir la pelota
     this.aimBall = null;      // referencia viva a la pelota que persigue
     this.hasContacted = false;
+    this.shotMul = 1;         // potencia del golpe: carga × energía
+    this.shotFire = false;    // ¿sale inflamado? (media reserva o más)
+    this.lastChargeF = 0;
+    this.lastEnergyF = 0;
     this.footTrail = [];   // estela visual de los pies durante el latigazo
 
     // Crear puntos en la posición de la postura base
@@ -84,7 +106,7 @@ export class Rider {
     }
     for (const n of Object.keys(GRIPS)) {
       const w = broom.toWorld(GRIPS[n].x, GRIPS[n].y);
-      this.points[n] = { x: w.x, y: w.y, px: w.x, py: w.y, r: 5 };
+      this.points[n] = { x: w.x, y: w.y, px: w.x, py: w.y, r: 5 * S };
     }
 
     // Constraints: sticks (rígidos) y ropes (solo longitud máxima → brazos)
@@ -106,11 +128,35 @@ export class Rider {
     // Capa: cadena verlet colgando del pecho (solo visual, vende el movimiento)
     this.cape = [];
     const c = this.points.chest;
-    for (let i = 0; i < 6; i++) this.cape.push({ x: c.x - i * 10, y: c.y, px: c.x - i * 10, py: c.y });
-    this.capeLen = 11;
+    for (let i = 0; i < 6; i++) {
+      const cx = c.x - i * 10 * S;
+      this.cape.push({ x: cx, y: c.y, px: cx, py: c.y });
+    }
+    this.capeLen = 11 * S;
   }
 
   pointVel(p, dt) { return { x: (p.x - p.px) / dt, y: (p.y - p.py) / dt }; }
+
+  // Potencia del golpe: cuánto se mantuvo Space × cuánta energía de orbes hay.
+  // Se calcula UNA vez al soltar y queda fija para todo el movimiento, así el
+  // golpe es un compromiso y no algo que cambia a mitad del arco.
+  // Consume energía: gastar la reserva en un cañonazo o guardarla para el
+  // impulso es la decisión.
+  _shotPower(target) {
+    const W = CFG.whip;
+    const chargeF = clamp(
+      (this.chargeT - W.minCharge) / Math.max(W.chargeFull - W.minCharge, 0.001), 0, 1);
+    const energyF = clamp(target?.energyFrac ?? 0, 0, 1);
+    this.lastChargeF = chargeF;
+    this.lastEnergyF = energyF;
+    // Media reserva o más: el tiro sale inflamado y suma potencia encima de
+    // todo lo demás. Umbral y no rampa, para que se pueda mirar el frasco y
+    // saber de antemano si toca el cañonazo.
+    this.shotFire = energyF >= W.fireThreshold;
+    if (energyF > 0 && W.energyCost > 0) target?.spendEnergy?.(W.energyCost);
+    return 1 + W.chargeBonus * chargeF + W.energyBonus * energyF
+      + (this.shotFire ? W.fireBonus : 0);
+  }
 
   // Al soltar, si la pelota está en rango el latigazo se vuelve un GOLPE
   // DIRIGIDO: se elige el sentido del giro para que el pie barra la pelota
@@ -208,6 +254,7 @@ export class Rider {
         this.swing = damp(this.swing, W.windAngle * dir, W.windSpeed, dt);
         if (!tuckHeld) {
           if (this.chargeT >= W.minCharge && this.cooldownT <= 0) {
+            this.shotMul = this._shotPower(target);
             const t = this._acquireTarget(target);
             if (t) {
               // GOLPE DIRIGIDO: el arco arranca antes del contacto y barre
@@ -218,7 +265,7 @@ export class Rider {
               this.aimDir = { x: t.hx, y: t.hy };
               this.swingDir = t.dirSign;
               this.swing = wrapAngle(t.contactSwing - t.dirSign * W.spinLead);
-              this.swingVel = t.dirSign * W.releaseVel;
+              this.swingVel = t.dirSign * W.releaseVel * this.shotMul;
               this.broom.aimOverride = Math.atan2(t.hy, t.hx);
               this._lunge(t);
             } else {
@@ -227,7 +274,8 @@ export class Rider {
               this.aimed = false;
               this.aimDir = null;
               this.swingDir = dir;
-              this.swingVel = -W.releaseVel * dir;
+              // El latigazo libre también gana: más carga = giro más violento
+              this.swingVel = -W.releaseVel * dir * this.shotMul;
             }
             this.phase = 'whip';
             this.whipT = 0;
@@ -405,10 +453,16 @@ export class Rider {
     this._updateCape(dt);
   }
 
-  // ¿Cuánta carga lleva? 0..1 — lo usa el HUD para el indicador.
+  // Carga 0..1 hacia la potencia MÁXIMA (no solo hacia el mínimo para
+  // disparar): así el anillo comunica que aguantar más pega más fuerte.
   chargeAmount() {
     if (this.phase !== 'wind') return 0;
-    return Math.min(this.chargeT / CFG.whip.minCharge, 1);
+    return clamp(this.chargeT / CFG.whip.chargeFull, 0, 1);
+  }
+
+  // ¿Ya alcanza para disparar? Por debajo de esto, soltar no hace nada.
+  isArmed() {
+    return this.phase === 'wind' && this.chargeT >= CFG.whip.minCharge;
   }
 
   _updateCape(dt) {
@@ -464,6 +518,7 @@ export class Rider {
     this.chargeT = 0; this.whipT = 0; this.cooldownT = 0;
     this.aimed = false; this.aimDir = null; this.aimBall = null;
     this.hasContacted = false;
+    this.shotFire = false;
     this.broom.aimOverride = null;
     this.footTrail.length = 0;
   }

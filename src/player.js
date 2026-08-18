@@ -11,6 +11,7 @@ export class Player {
     this.rider = new Rider(this.broom);
     this.control = { aim: { x: x + 100, y: y }, thrust: false, brake: false, tuck: false, boost: false };
     this.spawn = { x, y, angle };
+    this.ramCd = 0;         // enfriamiento entre embestidas (evita ráfagas)
     this.energy = 0;        // reserva mágica de los orbes
     this.energyPulse = 0;   // destello del HUD al recoger
   }
@@ -35,6 +36,7 @@ export class Player {
   // target = { ball: {x,y}, aim: {x,y} } — lo usa el golpe dirigido para saber
   // dónde está la pelota y hacia dónde mandarla.
   update(dt, frozen = false, target = null) {
+    if (this.ramCd > 0) this.ramCd -= dt;
     if (frozen) {
       // Cuenta regresiva: la escoba se mantiene en posición, el cuerpo se acomoda
       this.broom.vel.x *= 0.85;
@@ -56,6 +58,7 @@ export class Player {
     this.control.brake = false;
     this.control.tuck = false;
     this.control.boost = false;
+    this.ramCd = 0;
     this.energy = 0;
     this.energyPulse = 0;
     this.control.aim.x = this.spawn.x + Math.cos(this.spawn.angle) * 200;

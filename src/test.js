@@ -108,7 +108,12 @@ function step(dt) {
 
   const wasAimed = player.rider.aimed && player.rider.phase === 'whip';
   player.updateEnergy(dt, touch.active ? false : input.boost);
-  player.update(dt, false, { ball: ball.pos, aim: player.control.aim });
+  player.update(dt, false, {
+    ball: ball.pos,
+    aim: player.control.aim,
+    energyFrac: player.energy / CFG.boost.max,
+    spendEnergy: (c) => { player.energy = Math.max(0, player.energy - c); },
+  });
   collideBroomArena(
     player.broom,
     (x, y, s) => fx.onImpact(x, y, s, 'wall'),
@@ -135,6 +140,7 @@ function step(dt) {
   });
 
   ball.update(dt);
+  if (ball.fire > 0) particles.fireTrail(ball.pos.x, ball.pos.y, ball.vel.x, ball.vel.y, ball.fire);
   interactPlayerBall(player, ball, dt, fx);
   bounceBallInArena();
 
