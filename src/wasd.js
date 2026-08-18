@@ -99,7 +99,7 @@ const fx = {
     if (strength > 130) {
       particles.impact(x, y, strength);
       sound.impact(strength);
-      if (strength > 500) camera.shake(Math.min(strength / 90, 14));
+      // sin temblor por golpe suelto (queda reservado para eventos grandes)
     }
   },
 };
@@ -192,7 +192,6 @@ function applySpinHit(contactSpeed) {
   ball.vel.x = ux * speed;
   ball.vel.y = uy * speed;
   spin.hit = true;
-  camera.shake(7);
 }
 
 let lastBallSpeed = 0;
@@ -264,7 +263,7 @@ function step(dt) {
     b,
     (x, y, s) => fx.onImpact(x, y, s, 'wall'),
     (x, y, nx, ny, s) => {
-      sound.thunk(); camera.shake(9); particles.impact(x, y, s * 0.6);
+      sound.thunk(); particles.impact(x, y, s * 0.6);
       player.stuckAt = { x, y, nx, ny };
       spin.active = false;
     },
@@ -356,7 +355,7 @@ function frame(now) {
 
     const spA = Math.hypot(player.broom.vel.x, player.broom.vel.y);
     camera.setSpeedPunch(clamp((spA - 900) / 700, 0, 1));
-    camera.update(dtReal);
+    camera.update(dtReal, player.broom.pos, ball.pos);
     sound.setThrust(player.broom.thrustPower);
     sound.setBoost(player.broom.boostPower);
     sound.setWind(spA);

@@ -202,6 +202,44 @@ export const CFG = {
     speedCapMul: 1.55,   // deja superar el techo normal de velocidad
   },
 
+  // Orbe fugitivo — el premio gordo, y no se deja agarrar.
+  // Aparece cada tanto, HUYE de todos, y atraparlo da energía ilimitada.
+  // El balance vive en `speed`: más rápido que un vuelo normal (~823) pero
+  // más lento que uno con impulso (~1663). Para alcanzarlo hay que gastar
+  // energía, y lo que reparte es energía — apostás reserva para ganar
+  // reserva infinita. Mientras tanto el partido sigue: perseguirlo es
+  // soltar la pelota, y ahí está la decisión.
+  runner: {
+    r: 30,               // bien más grande que un orbe común: se ve de lejos
+    pickupR: 86,         // generoso: la gracia es la persecución, no el píxel
+    firstAt: 22,         // primera aparición tras el saque
+    every: 40,           // cada cuánto vuelve
+    everyJitter: 10,     // ± para que no sea un metrónomo predecible
+    warn: 1.6,           // aviso antes de materializarse
+    life: 20,            // si nadie lo alcanza, se desvanece y vuelve después
+
+    speed: 1080,         // tope cuando lo están persiguiendo
+    calmSpeed: 0.42,     // fracción del tope cuando nadie lo acosa (pasea)
+    accel: 2400,
+    fleeRange: 640,      // a qué distancia se da cuenta y arranca
+    panicGain: 1.9,      // satura el pánico a media distancia, no encima
+    panicDecay: 0.5,     // se calma despacio (evita turnarse dos perseguidores)
+    // Cansancio: le da arco a la persecución. Gastás el impulso para pegarte
+    // (la reserva llena da ~2 s) y después lo cansás hasta que corre menos
+    // que vos. Insistir paga; si lo soltás, se recupera.
+    stamDrain: 0.26,     // ~4 s de esprint hasta quedar agotado
+    stamRecover: 0.34,   // ~3 s tranquilo para recuperarse
+    tiredSpeed: 0.58,    // fracción del tope estando agotado (< escoba normal)
+    tiredDodge: 0.25,    // agotado casi no zigzaguea: ahí la persecución cierra
+    dodge: 0.75,         // componente lateral: escapa en diagonal, no recto
+    wallMargin: 210,     // cuánto antes de la pared empieza a doblar
+    wallWeight: 2.2,     // sin esto lo acorralan contra un borde al toque
+    wander: 0.35,        // deambular cuando está tranquilo
+
+    buff: 9,             // segundos de energía ilimitada al atraparlo
+    chaseRange: 1500,    // hasta dónde un bot considera que vale la pena ir
+  },
+
   // Embestidas: empujar y desestabilizar al rival.
   // La fuerza sale de la velocidad de ACERCAMIENTO entre las dos escobas, así
   // que embestir a fondo mueve de verdad y rozarse no hace nada. Sirve como
@@ -255,6 +293,19 @@ export const CFG = {
     flash: 0.5,          // destello blanco de pantalla (segundos)
     slowmo: 0.22,
     slowmoTime: 1.25,
+  },
+
+  // Cámara de gameplay: sigue el PROMEDIO entre el jugador y la pelota, y
+  // se acerca cuando el jugador tiene la pelota cerca (jugada en marcha) y
+  // se aleja cuando está lejos. Los arcos quedan fuera de cuadro seguido a
+  // propósito — para eso existen los indicadores de "arco fuera de cámara".
+  camera: {
+    closeDist: 260,    // por debajo de esto, "tiene la pelota": zoom cerrado
+    farDist: 950,      // por encima de esto, zoom abierto del todo
+    zoomClose: 1.7,    // × baseZoom (el que muestra el mapa completo)
+    zoomFar: 1.25,     // × baseZoom
+    followSpeed: 4.5,  // suavizado del paneo (1/s, más alto = más ágil)
+    zoomSpeed: 3.2,    // suavizado del zoom (1/s)
   },
 
   // Partido
