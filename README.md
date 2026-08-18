@@ -26,11 +26,23 @@ node server.js
 | **R** | Reiniciar partido |
 | **F3** | Overlay de físicas |
 
+## Modos
+
+| URL | Modo |
+|---|---|
+| `/` | 1v1 contra un bot |
+| `/?2v2` | 2v2 — vos + un compañero bot contra dos rivales |
+
+En 2v2 el compañero usa una variante más clara del color de equipo y una flecha
+marca cuál sos vos. Los bots se reparten roles: el que está más cerca va a la
+pelota y el otro cubre el arco, para que no se amontonen los dos.
+
 ## Flags de URL
 
 - `?debug` — overlay de físicas (puntos, constraints, velocidades)
 - `?bots` — IA vs IA (para observar el juego solo)
 - `?fast` — partido de 30 segundos
+- `?2v2` — partido de dos contra dos
 
 ## Reglas
 
@@ -61,11 +73,74 @@ ese es el riesgo, y se compromete al soltar.
 Un toque corto de `Space` no dispara nada y sigue sirviendo solo para girar más
 rápido.
 
+### Potencia: carga × energía × fuego
+
+La fuerza del golpe se decide **al soltar** y depende de cuánto mantuviste
+`Space` y de cuánta energía de orbes tenés en el frasco. Promedio de 6 tiros
+por fila:
+
+| | Velocidad de la pelota |
+|---|---|
+| Toque rápido, sin energía | 1133 |
+| Carga máxima, sin energía | 1392 |
+| Carga máxima, frasco al 49% | 1650 |
+| **Carga máxima, frasco al 51%** | **2187** 🔥 |
+| **Carga máxima, frasco lleno** | **2445** 🔥 |
+
+### 🔥 Tiro de fuego
+
+Con **media reserva o más**, el golpe sale inflamado: suma potencia encima de
+todo lo demás y **prende la pelota**, que vuela con una estela de cometa
+naranja hasta ~2,4 s. Es un umbral y no una rampa a propósito — mirás el frasco
+y ya sabés si te toca el cañonazo, así guardar energía deja de ser abstracto.
+
+El salto en el umbral es del 33% (1650 → 2187), y hay un **piso garantizado**
+(`fireMinPower`): gastar media reserva siempre paga, aunque conectes mal.
+
+Un tiro normal recorre ~1955 de cancha antes de volverse defendible; uno
+inflamado, **2605 de los 3169** que mide el campo — llega al arco rival desde
+tu propia mitad.
+
+El anillo de carga lo anticipa todo: se llena mientras mantenés, destella al
+máximo, un anillo interior muestra la energía, y **se vuelve naranja con
+lenguas de fuego girando** cuando el tiro va a salir inflamado.
+
+Cada golpe gasta 30 de energía, así que la reserva se reparte entre impulso
+mágico y cañonazos. Poner `CFG.whip.energyCost` en 0 si preferís que no gaste.
+Todo el escalado vive en `CFG.whip` (`chargeFull`, `chargeBonus`, `energyBonus`,
+`fireThreshold`, `fireBonus`, `fireMinPower`).
+
 Cómo funciona por debajo: el cuerpo orbita **el agarre de las manos**, no el
 centro de la escoba. Por eso el pie llega a 131 de alcance efectivo contra los 96
 del palo. Complemento necesario: solo la **punta** de la escoba pega fuerte — si
 todo el palo golpeara, barrería un círculo mayor que las piernas y le robaría
 todos los contactos al cuerpo.
+
+## Embestidas
+
+Chocar a un rival lo empuja y lo desestabiliza, y **la fuerza sale de tu
+velocidad de acercamiento** — pega con la escoba o con el cuerpo, da igual.
+Es una jugada: sacar al rival de posición antes de que llegue a la pelota.
+
+| Tu velocidad al embestir | El rival sale despedido a |
+|---|---|
+| 150 (rozando) | 60 — nada |
+| 400 | 77 |
+| 800 | 341 |
+| 1300 (a fondo con boost) | 1262 |
+
+Además le mete un giro que le arruina el apuntado un instante, y despega al que
+estuviera clavado en una pared.
+
+Tiene costo: embestir te frena fuerte (medido: 1300 → 198). Fallar la embestida
+te deja fuera de posición, que es el riesgo que la hace una decisión.
+
+A un **compañero** apenas lo movés (el bonus de embestida baja al 22% y el
+rebote entre aliados es la mitad de duro). Igual se estorban si se chocan — no
+se atraviesan — porque eso es parte del humor del deporte.
+
+Ajustable en `CFG.ram` (`minSpeed`, `push`, `maxPush`, `spin`, `recoil`,
+`allyMul`, `cooldown`).
 
 ## Orbes y energía
 
@@ -101,10 +176,24 @@ skin, capa y sombrero mientras el cuerpo reacciona con físicas), después se ab
 revelando rival, pelota, portales y límites, y aterriza exacto en el encuadre de
 gameplay justo antes del GO.
 
-**Gol**: el portal acumula energía una fracción de segundo, después detona con
-una onda expansiva que empuja físicamente a todos los jugadores en 900 de radio
-— salen despedidos girando, sin soltar la escoba. Cámara lenta breve para ver el
-caos, y vuelta rápida al juego. Ajustable en `CFG.intro` y `CFG.goalBlast`.
+**Gol (estilo Rocket League)**: el portal acumula energía una fracción de
+segundo y después **detona**. Fogonazo blanco de pantalla, onda expansiva y
+**todos los magos salen volando** — sin soltar la escoba, girando y estampados
+contra el campo por un sesgo hacia abajo. Cámara lenta para ver el caos, y
+vuelta rápida al juego.
+
+El alcance (3600) supera la diagonal de la cancha a propósito: **nadie se
+salva**. Medido en 2v2, un gol en el arco derecho lanza a los cuatro:
+
+| Distancia al portal | Velocidad antes → después |
+|---|---|
+| 1481 (encima) | 735 → **2958** |
+| 3046 | 1097 → 2344 |
+| 3092 | 404 → 1619 |
+| 3142 (arco opuesto) | 488 → 1434 |
+
+El piso del falloff (`minPush`) es lo que garantiza que el del arco opuesto
+igual se entere. Ajustable en `CFG.intro` y `CFG.goalBlast`.
 
 ## Escena de práctica
 
@@ -135,6 +224,21 @@ imagen para verificar la calibración.
 
 Para cambiar de mapa: reemplazar la imagen, ajustar `src`/`imgW`/`imgH` y
 recalibrar `L`/`R`/`T`/`B` con `?debug`.
+
+### Dos escalas independientes
+
+Arriba de `config.js` hay dos constantes que no hay que confundir:
+
+- **`MAP`** (1.28) estira la imagen y los límites por igual → agranda la
+  **cancha**. Da más espacio para volar (necesario en 2v2), pero achica a los
+  magos en pantalla.
+- **`CHAR`** (1.4) multiplica la escoba, las posturas del ragdoll, los radios de
+  colisión y los grosores de dibujo → agranda al **personaje** sin tocar el
+  campo. Es el contrapeso de `MAP`.
+
+`CHAR` está pensado para tocarse solo: todo lo que depende del tamaño del mago
+sale de `CFG.charScale`. Verificado que no altera el balance — 9 partidos
+bot-vs-bot dan 10,3 goles por partido con `CHAR` 1.4 contra 10,0 con 1.0.
 - `collisions.js` — cuerpo↔pelota, escoba↔pelota, jugador↔jugador (embestidas)
 - `bot.js` — IA: ataque/defensa/rodeo/anti-atasco, cursor con velocidad limitada
 - `match.js` — countdown, goles (slowmo), marcador, tiempo, gol de oro

@@ -146,7 +146,10 @@ export class Broom {
     this.boosting = !!ctl.boost && !!ctl.thrust;
     this.boostPower = damp(this.boostPower, this.boosting ? 1 : 0, 9, dt);
     this.thrustPower = damp(this.thrustPower, ctl.thrust ? 1 : 0, 12, dt);
-    if (ctl.thrust) {
+    // `noThrustForce` lo usa la variante WASD: ahí el empuje no va en la
+    // dirección de la escoba, lo aplica el propio modo. thrustPower se sigue
+    // actualizando para que los FX y el sonido funcionen igual.
+    if (ctl.thrust && !ctl.noThrustForce) {
       const d = this.dir();
       const mul = 1 + (CFG.boost.thrustMul - 1) * this.boostPower;
       this.vel.x += d.x * B.thrust * mul * dt;

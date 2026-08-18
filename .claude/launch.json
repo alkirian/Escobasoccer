@@ -5,7 +5,8 @@
       "name": "escoba",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server.js"],
-      "port": 5680
+      "port": 5680,
+      "autoPort": true
     }
   ]
 }

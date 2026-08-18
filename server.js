@@ -4,7 +4,9 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = 5680;
+// El puerto llega por entorno cuando lo lanza el harness; 5680 es el default
+// para cuando se corre a mano con `node server.js`.
+const PORT = Number(process.env.PORT) || 5680;
 const ROOT = path.join(__dirname, 'public');
 
 const MIME = {

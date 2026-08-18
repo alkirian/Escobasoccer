@@ -8,6 +8,7 @@ export class Input {
     this.tuck = false;
     this.boost = false;
     this.justPressed = new Set();
+    this.held = new Set();   // teclas mantenidas (lo usa el modo WASD)
 
     // Métricas de uso para el tutorial progresivo
     this.mouseMoved = 0;
@@ -38,13 +39,18 @@ export class Input {
       this._gesture();
       if (e.code === 'Space') { this.tuck = true; e.preventDefault(); }
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.boost = true;
+      this.held.add(e.code);
       this.justPressed.add(e.code);
     });
     addEventListener('keyup', e => {
       if (e.code === 'Space') this.tuck = false;
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.boost = false;
+      this.held.delete(e.code);
     });
-    addEventListener('blur', () => { this.lmb = this.rmb = this.tuck = this.boost = false; });
+    addEventListener('blur', () => {
+      this.lmb = this.rmb = this.tuck = this.boost = false;
+      this.held.clear();
+    });
   }
 
   _gesture() {

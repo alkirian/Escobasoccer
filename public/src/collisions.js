@@ -6,6 +6,11 @@ import { clampPointArena } from './arena.js';
 
 const FEET = new Set(['footF', 'footB', 'kneeF', 'kneeB']);
 
+// Semi-grosor del palo para colisiones. Escala con el personaje: si la escoba
+// se dibuja más gruesa pero choca con el radio viejo, la pelota se le mete
+// visiblemente adentro.
+const SHAFT_R = 7 * CFG.charScale;
+
 // 0 = toque suave (casi absorbe, favorece control) → 1 = impacto pleno
 // (rebote enérgico, como ahora). Un toque suave con la pelota quieta
 // no debería salir disparada para cualquier lado.
@@ -31,15 +36,25 @@ function applyAimedHit(rider, ball, contactSpeed) {
     const ul = Math.hypot(ux, uy) || 1;
     ux /= ul; uy /= ul;
   }
-  // Magnitud acotada al tope de la pelota: sin picos que luego se recortan.
-  let speed = Math.max(W.aimedMinPower, Math.min(contactSpeed * 1.15, W.aimedPower));
+  // La potencia se decidió al soltar: carga mantenida × energía de orbes.
+  const mul = rider.shotMul || 1;
+  let speed = Math.max(W.aimedMinPower, Math.min(contactSpeed * 1.15, W.aimedPower)) * mul;
+  // El tiro inflamado tiene piso propio: gastar media reserva siempre paga.
+  if (rider.shotFire) speed = Math.max(speed, W.fireMinPower);
   speed = Math.min(speed, CFG.ball.maxSpeed);
   ball.vel.x = ux * speed;
   ball.vel.y = uy * speed;
+  if (rider.shotFire) ball.ignite();
   rider.notifyAimedContact(); // conectó: termina la persecución
 }
 
 const aimedNow = (rider) => rider.phase === 'whip' && rider.aimed && rider.aimDir;
+
+// El latigazo libre también prende la pelota si venía cargado de energía: lo
+// que enciende el fuego es la reserva gastada, no haber apuntado bien.
+function maybeIgnite(rider, ball) {
+  if (rider.phase === 'whip' && rider.shotFire) ball.ignite();
+}
 
 // --- Jugador vs pelota ---
 export function interactPlayerBall(player, ball, dt, fx) {
@@ -81,6 +96,7 @@ export function interactPlayerBall(player, ball, dt, fx) {
         ball.vel.y += (pv.y - ball.vel.y) * carry;
       }
       if (aimed) applyAimedHit(player.rider, ball, Math.hypot(pv.x, pv.y));
+      else maybeIgnite(player.rider, ball);
       fx?.onImpact(ball.pos.x - nx * ball.r, ball.pos.y - ny * ball.r, Math.abs(vn), 'ball');
     }
   }
@@ -93,7 +109,7 @@ export function interactPlayerBall(player, ball, dt, fx) {
   const c = closestOnSegment(ball.pos.x, ball.pos.y, tail.x, tail.y, tip.x, tip.y);
   const onTip = c.t >= B.tipZone; // t = 0 en la cola, 1 en la punta
   const dx = ball.pos.x - c.x, dy = ball.pos.y - c.y;
-  const rsum = ball.r + 7;
+  const rsum = ball.r + SHAFT_R;
   const d = Math.hypot(dx, dy);
   if (d < rsum && d > 0) {
     const nx = dx / d, ny = dy / d;
@@ -125,11 +141,51 @@ export function interactPlayerBall(player, ball, dt, fx) {
   }
 }
 
+// Embestida: el que llega más rápido empuja y desestabiliza al otro.
+// La fuerza sale de la velocidad de ACERCAMIENTO entre las escobas, que es lo
+// que carga el momento — no de la velocidad del punto de contacto, que en un
+// ragdoll oscila y daría empujones aleatorios.
+// (nx, ny) apunta del que embiste hacia la víctima.
+function applyRam(attacker, victim, nx, ny, cx, cy, ally, fx) {
+  const R = CFG.ram;
+  if (attacker.ramCd > 0) return;   // sin ráfagas: un empujón por contacto
+  const av = attacker.broom.vel, vv = victim.broom.vel;
+  const closing = (av.x - vv.x) * nx + (av.y - vv.y) * ny;
+  if (closing < R.minSpeed) return;
+
+  const force = Math.min((closing - R.minSpeed) * R.push, R.maxPush)
+    * (ally ? R.allyMul : 1);
+
+  victim.broom.vel.x += nx * force;
+  victim.broom.vel.y += ny * force;
+  // Desestabilizar: el giro le arruina el apuntado un instante. Es la parte
+  // que convierte el empujón en una jugada y no en un simple desplazamiento.
+  victim.broom.angVel += (Math.random() * 2 - 1) * R.spin * (force / R.maxPush);
+  // Un empujón fuerte también despega al que estaba clavado en una pared
+  if (victim.broom.stuck && force > R.freeStuck) victim.broom.stuck = null;
+  // El cuerpo sale despedido por su cuenta: el ragdoll hace el resto
+  for (const { p } of victim.rider.hitPoints()) {
+    p.px -= nx * force * R.bodyKnock;
+    p.py -= ny * force * R.bodyKnock;
+  }
+  // Riesgo/recompensa: embestir cuesta velocidad al que embiste
+  attacker.broom.vel.x -= nx * force * R.recoil;
+  attacker.broom.vel.y -= ny * force * R.recoil;
+
+  attacker.ramCd = R.cooldown;
+  fx?.onImpact(cx, cy, closing, 'ram');
+}
+
 // --- Jugador vs jugador: embestidas, empujones, enganches temporales ---
 export function interactPlayers(pa, pb, dt, fx) {
   const ptsA = pa.rider.hitPoints(), ptsB = pb.rider.hitPoints();
+  // A un compañero se lo mueve apenas: chocarse entre aliados es humor,
+  // no una herramienta para sacárselo de encima.
+  const ally = pa.team === pb.team;
 
-  // cuerpos entre sí (separación posicional → el verlet crea el caos)
+  // cuerpos entre sí: separación posicional (el verlet crea el caos) y, si
+  // uno viene lanzado, empujón de verdad. Antes solo se separaban, así que
+  // tirarle el cuerpo encima a un rival no hacía absolutamente nada.
   for (const { p: a } of ptsA) {
     for (const { p: b } of ptsB) {
       const dx = b.x - a.x, dy = b.y - a.y;
@@ -140,23 +196,27 @@ export function interactPlayers(pa, pb, dt, fx) {
       const push = (rsum - d) * 0.5;
       a.x -= nx * push; a.y -= ny * push;
       b.x += nx * push; b.y += ny * push;
+      // Los dos sentidos: applyRam solo dispara para el que realmente cierra
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      applyRam(pa, pb, nx, ny, mx, my, ally, fx);
+      applyRam(pb, pa, -nx, -ny, mx, my, ally, fx);
     }
   }
 
   // escoba de A contra cuerpo de B (y viceversa) → embestidas
-  broomVsBody(pa, ptsB, pb, dt, fx);
-  broomVsBody(pb, ptsA, pa, dt, fx);
+  broomVsBody(pa, ptsB, pb, dt, fx, ally);
+  broomVsBody(pb, ptsA, pa, dt, fx, ally);
 
   // escoba vs escoba: choque de palos
-  broomVsBroom(pa, pb, fx);
+  broomVsBroom(pa, pb, fx, ally);
 }
 
-function broomVsBody(attacker, points, victim, dt, fx) {
+function broomVsBody(attacker, points, victim, dt, fx, ally) {
   const tip = attacker.broom.tip(), tail = attacker.broom.tail();
   for (const { p } of points) {
     const c = closestOnSegment(p.x, p.y, tail.x, tail.y, tip.x, tip.y);
     const dx = p.x - c.x, dy = p.y - c.y;
-    const rsum = p.r + 7;
+    const rsum = p.r + SHAFT_R;
     const d = Math.hypot(dx, dy);
     if (d >= rsum || d === 0) continue;
     const nx = dx / d, ny = dy / d;
@@ -168,25 +228,23 @@ function broomVsBody(attacker, points, victim, dt, fx) {
     const pv = victim.rider.pointVel(p, dt);
     const rvn = (bv.x - pv.x) * nx + (bv.y - pv.y) * ny;
     if (rvn > 120) {
-      // embestida: transmitir velocidad al cuerpo (vía prev) y a la escoba rival
+      // el palo empuja el punto del cuerpo (efecto local, siempre)
       p.px = p.x - (pv.x + nx * rvn * 0.8) * dt;
       p.py = p.y - (pv.y + ny * rvn * 0.8) * dt;
-      victim.broom.applyImpulseAt(p.x, p.y, nx * rvn * 0.25, ny * rvn * 0.25);
-      // la embestida cuesta velocidad al atacante (riesgo/recompensa)
-      attacker.broom.applyImpulseAt(c.x, c.y, -nx * rvn * 0.18, -ny * rvn * 0.18);
-      fx?.onImpact(c.x, c.y, rvn, 'ram');
     }
+    // El empujón grande lo decide la velocidad de acercamiento entre escobas
+    applyRam(attacker, victim, nx, ny, c.x, c.y, ally, fx);
   }
 }
 
-function broomVsBroom(pa, pb, fx) {
+function broomVsBroom(pa, pb, fx, ally) {
   const A = pa.broom, Bb = pb.broom;
   const aPts = [A.tail(), A.pos, A.tip()];
   const tipB = Bb.tip(), tailB = Bb.tail();
   for (const q of aPts) {
     const c = closestOnSegment(q.x, q.y, tailB.x, tailB.y, tipB.x, tipB.y);
     const dx = q.x - c.x, dy = q.y - c.y;
-    const rsum = 12;
+    const rsum = SHAFT_R * 2;
     const d = Math.hypot(dx, dy);
     if (d >= rsum || d === 0) continue;
     const nx = dx / d, ny = dy / d;
@@ -196,11 +254,16 @@ function broomVsBroom(pa, pb, fx) {
     A.pos.x += nx * (rsum - d) * 0.4; A.pos.y += ny * (rsum - d) * 0.4;
     Bb.pos.x -= nx * (rsum - d) * 0.4; Bb.pos.y -= ny * (rsum - d) * 0.4;
     if (vn < 0) {
-      const j = -vn * 0.55;
+      // Entre compañeros el rebote es más blando: chocarse igual estorba
+      // (no se atraviesan), pero no se mandan a volar entre ellos.
+      const j = -vn * (ally ? 0.28 : 0.55);
       A.applyImpulseAt(q.x, q.y, nx * j, ny * j);
       Bb.applyImpulseAt(c.x, c.y, -nx * j, -ny * j);
       if (-vn > 150) fx?.onImpact(c.x, c.y, -vn, 'clack');
     }
+    // Palo contra palo también sirve para sacar al rival de posición
+    applyRam(pa, pb, -nx, -ny, c.x, c.y, ally, fx);
+    applyRam(pb, pa, nx, ny, c.x, c.y, ally, fx);
   }
 }
 

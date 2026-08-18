@@ -86,6 +86,30 @@ export class Particles {
     }
   }
 
+  // Pelota en llamas: ascuas que quedan atrás y se apagan de amarillo a rojo
+  // a humo. Se emiten desde detrás de la pelota (contra su velocidad) para que
+  // se lea como una estela y no como una nube alrededor.
+  fireTrail(x, y, vx, vy, intensity) {
+    const n = 1 + (Math.random() < intensity ? 1 : 0);
+    const sp = Math.hypot(vx, vy) || 1;
+    for (let i = 0; i < n; i++) {
+      const back = rand(0.05, 0.25);
+      const color = Math.random() < 0.45 ? '#fff3b0'
+        : Math.random() < 0.6 ? '#ffab2e' : '#ff5a1f';
+      this.spawn(
+        x + rand(-9, 9), y + rand(-9, 9),
+        -vx * back + rand(-70, 70), -vy * back + rand(-70, 70) - rand(20, 90),
+        rand(0.3, 0.75), rand(4, 11) * (0.6 + intensity * 0.6), color,
+        -140, // ascuas: suben mientras se apagan
+      );
+    }
+    // chispa blanca ocasional al frente, donde "arde" más
+    if (Math.random() < intensity * 0.35) {
+      this.spawn(x + vx / sp * 12, y + vy / sp * 12, rand(-60, 60), rand(-60, 60),
+        rand(0.12, 0.26), rand(3, 6), '#ffffff', 0);
+    }
+  }
+
   // Esfuerzo / raspado al quedar clavado en una superficie
   scrape(x, y, nx, ny, intensity) {
     if (Math.random() > intensity * 0.7) return;

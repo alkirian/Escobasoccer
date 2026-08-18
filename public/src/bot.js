@@ -95,6 +95,36 @@ export class Bot {
 
     const speed = Math.hypot(me.vel.x, me.vel.y);
 
+    // --- Reparto de roles (2v2) ---
+    // Sin esto los dos compañeros persiguen la misma pelota y se estorban.
+    // El que está más cerca va a buscarla; el otro cubre, salvo que sea el
+    // 'support' y la pelota esté claramente lejos de su zona.
+    let hangBack = false;
+    if (world.players && world.players.length > 2) {
+      const mates = world.players.filter(
+        (p) => p !== this.player && p.team === this.player.team);
+      const closest = mates.every(
+        (p) => Math.hypot(ball.pos.x - p.broom.pos.x, ball.pos.y - p.broom.pos.y) > distToBall);
+      // El apoyo cede la pelota al compañero y se queda cubriendo el arco
+      hangBack = this.role === 'support' && !closest;
+    }
+
+    if (hangBack) {
+      // CUBRIR: quedarse entre la pelota y el arco propio, sin encimar
+      this.mode = 'cover';
+      this.desired.x = ownPortal.x * 0.55 + bp.x * 0.45;
+      this.desired.y = bp.y * 0.55;
+      const toT = Math.hypot(this.desired.x - me.pos.x, this.desired.y - me.pos.y);
+      this.thrust = toT > 130;
+      this.brake = toT < 90 && speed > 380;
+      this.tuck = false;
+      this.wantsBoost = false;
+      const n = 45;
+      this.noise.x = rand(-n, n);
+      this.noise.y = rand(-n, n);
+      return;
+    }
+
     if (this.backoffT > 0) {
       // RETROCEDER para tomar carrera y volver a embestir la pelota
       this.mode = 'backoff';

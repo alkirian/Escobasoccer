@@ -18,7 +18,10 @@ export class Camera {
     this.speedPunch = 0;
   }
 
-  shake(m) { this.shakeMag = Math.min(this.shakeMag + m, 26); }
+  // El tope evita que una cadena de impactos deje la pantalla temblando sin
+  // control. La explosión de gol pide un tope propio, más alto: es el único
+  // momento en el que la sacudida grande está buscada.
+  shake(m, cap = 26) { this.shakeMag = Math.min(this.shakeMag + m, cap); }
 
   // Presentación: arranca pegada al mago (para ver skin, capa y sombrero) y
   // se abre revelando rival, pelota, portales y límites, terminando exacto en
