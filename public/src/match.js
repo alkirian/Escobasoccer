@@ -23,6 +23,11 @@ export class Match {
       // Presentación solo al empezar el partido, no después de cada gol:
       // repetirla cortaría el ritmo competitivo.
       this.world.camera.startIntro(this.world.playerA);
+      // El fugitivo sólo se reinicia con el partido entero. Si se reiniciara
+      // en cada gol, con ~10 goles por partido su temporizador de 40 s nunca
+      // llegaría a cero y no aparecería nunca. Entre goles simplemente queda
+      // congelado (sólo corre con `state === 'play'`) y después sigue.
+      this.world.runner?.reset(true);
     }
     this.goalT = 0;
     this.goalSide = null;

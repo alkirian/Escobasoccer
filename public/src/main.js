@@ -14,7 +14,7 @@ import { Particles } from './particles.js';
 import { Sound } from './sound.js';
 import { Match } from './match.js';
 import { Renderer } from './render.js';
-import { OrbField } from './orbs.js';
+import { OrbField, RunnerOrb } from './orbs.js';
 import { collideBallArena, collideBroomArena, applyPortalSuction } from './arena.js';
 import { interactPlayerBall, interactPlayers, clampRiderArena } from './collisions.js';
 
@@ -78,10 +78,11 @@ input.firstGesture = () => sound.init();
 touch.onFirstTouch = () => sound.init();
 
 const orbs = new OrbField();
+const runner = new RunnerOrb();
 
 const world = {
   playerA, playerB, players, teamA, teamB, teamSize: TEAM_SIZE,
-  ball, camera, particles, sound, input, touch, orbs,
+  ball, camera, particles, sound, input, touch, orbs, runner,
   debug: DEBUG, botsMode: BOTS, paused: false,
   match: null,
 };
@@ -105,7 +106,8 @@ const fx = {
     if (strength > 130) {
       particles.impact(x, y, strength);
       sound.impact(strength);
-      if (strength > 500) camera.shake(Math.min(strength / 90, 14));
+      // El temblor de cámara quedó reservado para la explosión de gol:
+      // sacudir la pantalla en cada golpe suelto se sentía excesivo.
     }
   },
 };
@@ -157,7 +159,7 @@ function step(dt) {
     ball: ball.pos,
     aim: pl.control.aim,
     energyFrac: pl.energy / CFG.boost.max,
-    spendEnergy: (c) => { pl.energy = Math.max(0, pl.energy - c); },
+    spendEnergy: (c) => pl.spendEnergy(c),
   });
   for (const pl of players) pl.update(dt, frozen, mkTarget(pl));
   for (const pl of players) {
@@ -166,7 +168,6 @@ function step(dt) {
       (x, y, s) => fx.onImpact(x, y, s, 'wall'),
       (x, y, nx, ny, s) => {
         sound.thunk();
-        camera.shake(9);
         particles.impact(x, y, s * 0.6);
         pl.stuckAt = { x, y, nx, ny };
       },
@@ -209,6 +210,22 @@ function step(dt) {
     particles.orbAbsorb(orb.fx, oy, pl.broom.pos, color);
     sound.orb();
   });
+
+  // Orbe fugitivo: solo corre con el partido en juego
+  runner.update(dt, players, match.state === 'play', {
+    onAppear: (x, y) => { particles.runnerBurst(x, y); sound.runnerAppear(); },
+    onEscape: (x, y) => { particles.runnerBurst(x, y); },
+  });
+  const caught = runner.collect(players);
+  if (caught) {
+    caught.grantUnlimited(CFG.runner.buff);
+    particles.runnerCatch(runner.x, runner.y, caught.broom.pos);
+    sound.runnerCatch();
+  }
+  // Chispas doradas mientras dura la energía ilimitada
+  for (const pl of players) {
+    if (pl.unlimited) particles.unlimitedAura(pl.broom.pos.x, pl.broom.pos.y);
+  }
 
   // Bots: usan el boost cuando persiguen de lejos
   for (const bot of bots) bot.player.updateEnergy(dt, bot.wantsBoost);
@@ -268,7 +285,7 @@ function frame(now) {
     // Cámara: fija en gameplay, con un acento sutil a mucha velocidad
     const spA = Math.hypot(playerA.broom.vel.x, playerA.broom.vel.y);
     camera.setSpeedPunch(clamp((spA - 900) / 700, 0, 1));
-    camera.update(dtReal);
+    camera.update(dtReal, playerA.broom.pos, ball.pos);
 
     // Sonido continuo
     sound.setThrust(playerA.broom.thrustPower);

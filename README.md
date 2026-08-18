@@ -116,6 +116,22 @@ del palo. Complemento necesario: solo la **punta** de la escoba pega fuerte — 
 todo el palo golpeara, barrería un círculo mayor que las piernas y le robaría
 todos los contactos al cuerpo.
 
+## Cámara
+
+Dinámica: sigue el **promedio entre vos y la pelota**, y se acerca cuando la
+tenés cerca (jugada en marcha) y se aleja cuando está lejos (más contexto para
+ubicarse). Ya no muestra el mapa completo, así que los arcos quedan fuera de
+cuadro seguido — para eso hay **flechas en el borde de la pantalla**, en el
+color del equipo dueño, que apuntan hacia el arco cuando no está visible.
+
+El paneo nunca deja ver más allá del borde del mapa pintado (clamp contra los
+límites de la imagen). Ajustable en `CFG.camera` (`closeDist`, `farDist`,
+`zoomClose`, `zoomFar`, `followSpeed`, `zoomSpeed`).
+
+Los temblores de cámara por golpe suelto se sacaron: ahora quedan reservados
+para la explosión de gol, que sigue siendo el único momento con sacudida
+grande y controlada.
+
 ## Embestidas
 
 Chocar a un rival lo empuja y lo desestabiliza, y **la fuerza sale de tu
@@ -155,6 +171,49 @@ de a poco con un anillo de progreso para poder anticiparlos.
 
 Todo se ajusta en `CFG.orbs` (cantidad, posiciones en fracciones del campo,
 energía, respawn) y `CFG.boost`.
+
+## ✨ Orbe fugitivo — energía ilimitada
+
+Cada ~40 s aparece un orbe **dorado y mucho más grande** que **huye de todos**.
+Atraparlo da **9 segundos de energía ilimitada**: el frasco no baja, el impulso
+es gratis y todos los golpes salen inflamados.
+
+El partido no se detiene: ir por él es soltar la pelota, y ahí está la decisión.
+
+**El bucle de diseño**: el fugitivo vuela más rápido que una escoba normal
+(823) pero más lento que una con impulso (1663) — para alcanzarlo hay que
+gastar reserva, y lo que reparte es reserva. Apostás energía para ganar energía
+infinita. Medido con 12 persecuciones por fila:
+
+| | Lo atrapa | Tiempo promedio |
+|---|---|---|
+| Con impulso (frasco lleno) | **9/12** | 6,8 s |
+| Sin impulso (frasco vacío) | 3/12 | los que salen son spawns con suerte |
+
+Gastar energía **triplica** las chances.
+
+**Cómo escapa**: huye de cada perseguidor en *diagonal* (no en línea recta, que
+sería fácil de interceptar), esquiva las paredes antes de que lo acorralen, y
+deambula tranquilo cuando nadie lo persigue.
+
+**Cansancio** — es lo que le da arco a la persecución. La reserva llena da
+apenas ~2 s de impulso, así que sin esto el orbe se escapaba siempre pasada esa
+ventana. Esprintar lo agota en ~4 s, y agotado corre más lento que vos **y casi
+no zigzaguea**. Eso segundo importa más que lo primero: medido, un orbe cansado
+corría a 626 contra 860 del jugador y aun así la distancia oscilaba entre 100 y
+380 sin cerrar nunca, porque la escoba tiene demasiada inercia para seguir un
+zigzag. Recién cuando deja de esquivar, la persecución converge.
+
+Si nadie lo alcanza en 20 s se desvanece (parpadea antes de irse) y vuelve más
+tarde. Un anillo dorado avisa dónde va a aparecer 1,6 s antes, hay una **flecha
+en el borde de la pantalla** cuando queda fuera de cámara, y mientras dura el
+premio el frasco se vuelve oro con un contador `∞ 9.0s`.
+
+Los bots también lo persiguen — va el mejor parado del equipo, salvo que esté
+apagando un incendio en su propio arco, y gasta impulso para alcanzarlo.
+
+Todo en `CFG.runner` (`speed`, `every`, `life`, `buff`, `fleeRange`, `dodge`,
+`panicGain`, `stamDrain`, `tiredSpeed`, `tiredDodge`, `chaseRange`).
 
 ## Escoba clavada
 
@@ -214,8 +273,8 @@ delante tuyo.
 El campo **es** la imagen `public/1 mapa.jpeg` (2752x1536). El mundo usa
 píxeles de esa imagen con el origen en su centro, y la imagen se dibuja dentro
 de la transformación de cámara: por eso cada muro pintado cae exactamente sobre
-su límite físico. La cámara es fija — siempre se ve el mapa completo, sin paneo
-ni zoom.
+su límite físico. La cámara es dinámica (ver sección "Cámara" más arriba) —
+la imagen es fija, la cámara la recorre.
 
 Los límites viven en `CFG.arena` (`L`/`R`/`T`/`B`, `portalY`, `portalR`) y están
 calibrados a mano sobre el arte: los laterales en el plano de los arcos

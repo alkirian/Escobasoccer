@@ -132,6 +132,18 @@ export class Sound {
     this._blip(2100, 0.07, 'sine', 0.07, 0.03);
   }
 
+  // El orbe fugitivo se materializa: campanada mágica ascendente que llama
+  // la atención aunque esté fuera de cámara
+  runnerAppear() {
+    [523, 784, 1047].forEach((n, i) => this._blip(n, 0.45, 'triangle', 0.22, i * 0.11));
+  }
+
+  // Atrapado: fanfarria corta y dorada
+  runnerCatch() {
+    [659, 880, 1175, 1568].forEach((n, i) => this._blip(n, 0.4, 'triangle', 0.26, i * 0.07));
+    this._blip(330, 0.5, 'sawtooth', 0.13);
+  }
+
   // Boost sostenido: se conecta al mismo lazo de propulsión pero más grave
   setBoost(p) {
     if (!this.ctx) return;

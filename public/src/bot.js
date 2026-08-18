@@ -125,6 +125,37 @@ export class Bot {
       return;
     }
 
+    // --- Orbe fugitivo ---
+    // Va sólo el que está mejor parado del equipo, y sólo si no está apagando
+    // un incendio en su propio arco. Si fueran todos, el partido se
+    // transformaría en una cacería y nadie defendería.
+    const runner = world.runner;
+    if (runner?.active) {
+      const dRun = Math.hypot(runner.x - me.pos.x, runner.y - me.pos.y);
+      const mates = (world.players || []).filter(
+        (p) => p !== this.player && p.team === this.player.team);
+      const bestOfTeam = mates.every(
+        (p) => Math.hypot(runner.x - p.broom.pos.x, runner.y - p.broom.pos.y) > dRun);
+      const emergency = towardOwn && ballNearOwn && !meBehindBall;
+      if (bestOfTeam && !emergency && dRun < CFG.runner.chaseRange) {
+        this.mode = 'runner';
+        // Interceptar: apuntar adonde VA a estar, no donde está
+        const lead = clamp(dRun / 900, 0.1, 0.55);
+        this.desired.x = runner.x + runner.vx * lead;
+        this.desired.y = runner.y + runner.vy * lead;
+        this.thrust = true;
+        this.brake = false;
+        this.tuck = false;
+        // Sin impulso no lo alcanza nunca: el fugitivo corre más que un
+        // vuelo normal. Gastar la reserva para ganar reserva infinita.
+        this.wantsBoost = true;
+        const n = 30;
+        this.noise.x = rand(-n, n);
+        this.noise.y = rand(-n, n);
+        return;
+      }
+    }
+
     if (this.backoffT > 0) {
       // RETROCEDER para tomar carrera y volver a embestir la pelota
       this.mode = 'backoff';

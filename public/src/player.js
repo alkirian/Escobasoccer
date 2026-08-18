@@ -14,6 +14,7 @@ export class Player {
     this.ramCd = 0;         // enfriamiento entre embestidas (evita ráfagas)
     this.energy = 0;        // reserva mágica de los orbes
     this.energyPulse = 0;   // destello del HUD al recoger
+    this.unlimitedT = 0;    // energía ilimitada del orbe fugitivo (segundos)
   }
 
   // Energía: la suman los orbes, la gasta el boost. Solo se puede arrancar
@@ -23,12 +24,35 @@ export class Player {
     this.energyPulse = 1;
   }
 
+  // Premio del orbe fugitivo: durante unos segundos el frasco no baja.
+  // Se toma el máximo en vez de sumar, para que atrapar dos seguidos no
+  // encadene un buff eterno.
+  grantUnlimited(seconds) {
+    this.unlimitedT = Math.max(this.unlimitedT, seconds);
+    this.energy = CFG.boost.max;
+    this.energyPulse = 1;
+  }
+
+  get unlimited() { return this.unlimitedT > 0; }
+
+  // Único punto por el que se descuenta energía (boost aparte). Con el buff
+  // activo no cobra nada — es lo que hace que el golpe de fuego salga en
+  // cada latigazo mientras dura.
+  spendEnergy(cost) {
+    if (this.unlimited) return;
+    this.energy = Math.max(0, this.energy - cost);
+  }
+
   updateEnergy(dt, wantBoost) {
     const B = CFG.boost;
     if (this.energyPulse > 0) this.energyPulse = Math.max(0, this.energyPulse - dt * 2.4);
+    if (this.unlimitedT > 0) {
+      this.unlimitedT -= dt;
+      this.energy = B.max;      // el frasco se mantiene lleno solo
+    }
     const can = this.energy > 0 && (this.broom.boosting || this.energy >= B.minToStart);
     const active = wantBoost && can && this.control.thrust;
-    if (active) this.energy = clamp(this.energy - B.drain * dt, 0, B.max);
+    if (active && !this.unlimited) this.energy = clamp(this.energy - B.drain * dt, 0, B.max);
     this.control.boost = active;
     return active;
   }
@@ -61,6 +85,7 @@ export class Player {
     this.ramCd = 0;
     this.energy = 0;
     this.energyPulse = 0;
+    this.unlimitedT = 0;
     this.control.aim.x = this.spawn.x + Math.cos(this.spawn.angle) * 200;
     this.control.aim.y = this.spawn.y + Math.sin(this.spawn.angle) * 200;
   }

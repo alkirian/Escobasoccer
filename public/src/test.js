@@ -13,7 +13,7 @@ import { Sound } from './sound.js';
 import { Renderer } from './render.js';
 import { collideBroomArena } from './arena.js';
 import { interactPlayerBall, clampRiderArena } from './collisions.js';
-import { OrbField } from './orbs.js';
+import { OrbField, RunnerOrb } from './orbs.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -48,9 +48,13 @@ const stubMatch = {
 };
 
 const orbs = new OrbField();
+// En práctica aparece enseguida y no se va nunca: la idea es poder probar la
+// persecución cuantas veces haga falta sin esperar el ciclo del partido.
+const runner = new RunnerOrb();
+runner.timer = 1.5;
 
 const world = {
-  playerA: player, playerB: null, ball, camera, particles, sound, input, touch, orbs,
+  playerA: player, playerB: null, ball, camera, particles, sound, input, touch, orbs, runner,
   match: stubMatch, practice: true, botsMode: false, paused: false,
   debug: params.has('debug'),
   stats: { lastHit: 0, lastHitAt: 0, lastAimed: false },
@@ -61,7 +65,7 @@ const fx = {
     if (strength > 130) {
       particles.impact(x, y, strength);
       sound.impact(strength);
-      if (strength > 500) camera.shake(Math.min(strength / 90, 14));
+      // sin temblor por golpe suelto (queda reservado para eventos grandes)
     }
   },
 };
@@ -118,7 +122,7 @@ function step(dt) {
     player.broom,
     (x, y, s) => fx.onImpact(x, y, s, 'wall'),
     (x, y, nx, ny, s) => {
-      sound.thunk(); camera.shake(9); particles.impact(x, y, s * 0.6);
+      sound.thunk(); particles.impact(x, y, s * 0.6);
       player.stuckAt = { x, y, nx, ny };
     },
   );
@@ -138,6 +142,18 @@ function step(dt) {
     particles.orbAbsorb(orb.fx, oy, pl.broom.pos, CFG.colors.p1);
     sound.orb();
   });
+
+  runner.update(dt, [player], true, {
+    onAppear: (x, y) => { particles.runnerBurst(x, y); sound.runnerAppear(); },
+    onEscape: (x, y) => { particles.runnerBurst(x, y); },
+  });
+  const caught = runner.collect([player]);
+  if (caught) {
+    caught.grantUnlimited(CFG.runner.buff);
+    particles.runnerCatch(runner.x, runner.y, caught.broom.pos);
+    sound.runnerCatch();
+  }
+  if (player.unlimited) particles.unlimitedAura(player.broom.pos.x, player.broom.pos.y);
 
   ball.update(dt);
   if (ball.fire > 0) particles.fireTrail(ball.pos.x, ball.pos.y, ball.vel.x, ball.vel.y, ball.fire);
@@ -180,7 +196,7 @@ function frame(now) {
     while (acc >= FIXED_DT && steps < 6) { step(FIXED_DT); acc -= FIXED_DT; steps++; }
     if (steps === 6) acc = 0;
 
-    camera.update(dtReal);
+    camera.update(dtReal, player.broom.pos, ball.pos);
     sound.setThrust(player.broom.thrustPower);
     sound.setWind(Math.hypot(player.broom.vel.x, player.broom.vel.y));
   }

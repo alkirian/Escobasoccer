@@ -110,6 +110,38 @@ export class Particles {
     }
   }
 
+  // El orbe fugitivo se materializa (o se desvanece): anillo dorado
+  runnerBurst(x, y) {
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2 + rand(-0.1, 0.1);
+      const s = rand(160, 460);
+      this.spawn(x, y, Math.cos(a) * s, Math.sin(a) * s,
+        rand(0.4, 0.9), rand(3, 7), Math.random() < 0.6 ? '#ffd76a' : '#fff6d8', 0);
+    }
+  }
+
+  // Atrapado: la energía dorada se vuelca dentro del jugador
+  runnerCatch(x, y, target) {
+    for (let i = 0; i < 46; i++) {
+      const a = rand(Math.PI * 2), s = rand(70, 320);
+      this.list.push({
+        x: x + Math.cos(a) * rand(6, 34), y: y + Math.sin(a) * rand(6, 34),
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        life: rand(0.35, 0.7), maxLife: 0.7, size: rand(3, 7),
+        color: Math.random() < 0.55 ? '#ffd76a' : '#ffffff', grav: 0, fade: true,
+        seek: target, seekK: rand(30, 55),
+      });
+    }
+  }
+
+  // Aura mientras dura la energía ilimitada: chispitas doradas subiendo
+  unlimitedAura(x, y) {
+    if (Math.random() > 0.35) return;
+    this.spawn(x + rand(-34, 34), y + rand(-30, 30),
+      rand(-40, 40), rand(-120, -40), rand(0.3, 0.6), rand(2, 5),
+      Math.random() < 0.5 ? '#ffd76a' : '#fff6d8', -60);
+  }
+
   // Esfuerzo / raspado al quedar clavado en una superficie
   scrape(x, y, nx, ny, intensity) {
     if (Math.random() > intensity * 0.7) return;

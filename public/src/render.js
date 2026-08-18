@@ -41,6 +41,7 @@ export class Renderer {
     this._portalAura(ctx, 1, world);
     this._shadows(ctx, world);
     if (world.orbs) this._orbs(ctx, world.orbs);
+    if (world.runner) this._runner(ctx, world.runner);
 
     world.particles.draw(ctx);
 
@@ -61,8 +62,85 @@ export class Renderer {
     ctx.restore();
 
     this._aimIndicator(ctx, world);
+    this._offscreenGoals(ctx, world, W, H);
     if (world.touch) world.touch.draw(ctx, W, H);
     this._hud(ctx, world, W, H);
+  }
+
+  // ---------- INDICADORES DE ARCO FUERA DE CÁMARA ----------
+  // La cámara ahora sigue al jugador y la pelota en vez de mostrar el mapa
+  // entero, así que los arcos quedan fuera de cuadro seguido. Sin esto sería
+  // fácil perder la orientación de hacia dónde hay que llevar la pelota.
+  // Se dibuja una flecha en el borde de la pantalla, en el color del equipo
+  // dueño de ese arco, apuntando en la dirección real hacia el portal.
+  // Rectángulo "seguro" para las flechas: recortado arriba (marcador) y abajo
+  // (frasco de energía + runa de habilidad, ambos en la esquina inferior
+  // izquierda) para que nunca se dibujen encima del HUD.
+  _safeRect(W, H) {
+    return { left: 30, right: W - 30, top: 74, bottom: H - 214 };
+  }
+
+  // Dibuja una flecha en el borde del rectángulo seguro apuntando hacia
+  // (sx, sy). Devuelve false si el objetivo ya estaba cómodamente visible.
+  // El recorte es eje por eje porque el rectángulo NO está centrado en la
+  // pantalla: asumir simetría hace que la flecha termine pisando el HUD.
+  _edgeArrow(ctx, W, H, sx, sy, color, inner, scale = 1) {
+    const s = this._safeRect(W, H);
+    if (sx > s.left + inner && sx < s.right - inner
+      && sy > s.top + inner && sy < s.bottom - inner) return false;
+
+    const cx = W / 2, cy = H / 2;
+    const dx = sx - cx, dy = sy - cy;
+    let t = Infinity;
+    if (dx > 0) t = Math.min(t, (s.right - cx) / dx);
+    else if (dx < 0) t = Math.min(t, (s.left - cx) / dx);
+    if (dy > 0) t = Math.min(t, (s.bottom - cy) / dy);
+    else if (dy < 0) t = Math.min(t, (s.top - cy) / dy);
+    if (!isFinite(t)) return false;
+
+    ctx.save();
+    ctx.translate(cx + dx * t, cy + dy * t);
+    ctx.rotate(Math.atan2(dy, dx));
+    ctx.scale(scale, scale);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.22;
+    ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.fill();
+    ctx.globalAlpha = 0.92;
+    ctx.beginPath();
+    ctx.moveTo(13, 0);
+    ctx.lineTo(-8, -9);
+    ctx.lineTo(-2, 0);
+    ctx.lineTo(-8, 9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(10,8,25,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    return true;
+  }
+
+  _offscreenGoals(ctx, world, W, H) {
+    const cam = world.camera;
+    for (const side of [-1, 1]) {
+      const p = portalCenter(side);
+      const sx = W / 2 + (p.x - cam.x) * cam.zoom;
+      const sy = H / 2 + (p.y - cam.y) * cam.zoom;
+      const color = side === -1 ? CFG.colors.p1 : CFG.colors.p2;
+      // inner 90: el arco ya se ve por su propio resplandor antes del borde
+      this._edgeArrow(ctx, W, H, sx, sy, color, 90);
+    }
+
+    // El fugitivo también necesita flecha, y más grande: es el único objeto
+    // del juego que se mueve solo, así que perderlo de vista es perderlo.
+    const r = world.runner;
+    if (r && (r.state === 'alive' || r.state === 'warn')) {
+      const sx = W / 2 + (r.x - cam.x) * cam.zoom;
+      const sy = H / 2 + (r.y - cam.y) * cam.zoom;
+      const pulse = 1.15 + 0.25 * Math.sin(this.t * 7);
+      this._edgeArrow(ctx, W, H, sx, sy, '#ffd76a', 40, pulse);
+    }
   }
 
   // ---------- MAPA ----------
@@ -181,6 +259,96 @@ export class Renderer {
 
     ctx.globalAlpha = 1;
     ctx.restore();
+  }
+
+  // ---------- ORBE FUGITIVO ----------
+  // Dorado, más grande y con estela de cometa: tiene que gritar "vengan a
+  // buscarme" desde el otro lado de la cancha. Cuanto más acosado, más
+  // rápido late y más larga la estela.
+  _runner(ctx, r) {
+    const R = CFG.runner;
+
+    // Aviso previo: un anillo que se cierra marcando dónde va a aparecer.
+    // Sin esto se materializa de la nada y nadie llega a reaccionar.
+    if (r.state === 'warn') {
+      const k = 1 - clamp(r.timer / R.warn, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.4 * k;
+      ctx.strokeStyle = '#ffd76a';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 12]);
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, R.r * (5 - 3.4 * k), 0, 7);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.5 * k;
+      ctx.fillStyle = '#ffd76a';
+      ctx.beginPath(); ctx.arc(r.x, r.y, R.r * k, 0, 7); ctx.fill();
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      return;
+    }
+    if (r.state !== 'alive') return;
+
+    // Estela: se alarga con el pánico, así se lee la persecución
+    for (let i = 1; i < r.trail.length; i++) {
+      const t = i / r.trail.length;
+      ctx.globalAlpha = t * (0.15 + 0.4 * r.panic);
+      ctx.fillStyle = t > 0.7 ? '#fff6d8' : '#ffb020';
+      ctx.beginPath();
+      ctx.arc(r.trail[i].x, r.trail[i].y, R.r * t * 0.8, 0, 7);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Parpadeo de últimos segundos: avisa que se va a escapar
+    const leaving = r.lifeT < 4;
+    if (leaving && Math.sin(r.lifeT * 14) < -0.35) return;
+
+    const beat = 1 + 0.09 * Math.sin(this.t * (5 + r.panic * 12));
+    const rad = R.r * beat;
+
+    ctx.save();
+    ctx.translate(r.x, r.y);
+
+    // halo dorado
+    const g = ctx.createRadialGradient(0, 0, rad * 0.2, 0, 0, rad * 3.2);
+    g.addColorStop(0, 'rgba(255,225,140,0.75)');
+    g.addColorStop(0.4, 'rgba(255,170,40,0.28)');
+    g.addColorStop(1, 'rgba(255,140,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, rad * 3.2, 0, 7); ctx.fill();
+
+    // anillos rúnicos girando en sentidos opuestos
+    ctx.strokeStyle = 'rgba(255,240,190,0.85)';
+    ctx.lineWidth = 2.5;
+    for (let i = 0; i < 2; i++) {
+      const a = this.t * (1.4 + i * 1.1) * (i ? -1 : 1);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rad * 1.9, rad * 0.7, a, 0, 7);
+      ctx.stroke();
+    }
+
+    // núcleo
+    const cg = ctx.createRadialGradient(-rad * 0.3, -rad * 0.3, rad * 0.15, 0, 0, rad);
+    cg.addColorStop(0, '#fffdf0');
+    cg.addColorStop(0.5, '#ffd76a');
+    cg.addColorStop(1, '#e08a10');
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.arc(0, 0, rad, 0, 7); ctx.fill();
+
+    // símbolo de infinito: dice qué da, sin texto
+    ctx.strokeStyle = '#7a4a08';
+    ctx.lineWidth = rad * 0.13;
+    const lr = rad * 0.34;
+    ctx.beginPath();
+    ctx.arc(-lr, 0, lr * 0.85, 0, 7);
+    ctx.moveTo(lr + lr * 0.85, 0);
+    ctx.arc(lr, 0, lr * 0.85, 0, 7);
+    ctx.stroke();
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   // ---------- ORBES ----------
@@ -1022,6 +1190,7 @@ export class Renderer {
     const frac = clamp(pl.energy / E.max, 0, 1);
     const pulse = pl.energyPulse || 0;
     const boosting = pl.broom.boostPower > 0.05;
+    const unlimited = pl.unlimitedT > 0;
 
     const vw = 42, vh = 122;
     const x = 30, y = H - vh - 40;
@@ -1049,8 +1218,13 @@ export class Renderer {
     const top = y + vh - (vh - 22) * frac;
     const glow = boosting ? 1 : 0;
     const lg = ctx.createLinearGradient(0, top, 0, y + vh);
-    lg.addColorStop(0, glow ? '#fff0b0' : '#bdf0ff');
-    lg.addColorStop(1, glow ? '#ff9a3c' : '#2f8fd8');
+    if (unlimited) {           // oro puro mientras dura el premio del fugitivo
+      lg.addColorStop(0, '#fffbe0');
+      lg.addColorStop(1, '#e8a010');
+    } else {
+      lg.addColorStop(0, glow ? '#fff0b0' : '#bdf0ff');
+      lg.addColorStop(1, glow ? '#ff9a3c' : '#2f8fd8');
+    }
     ctx.fillStyle = lg;
     ctx.beginPath();
     ctx.moveTo(x, y + vh);
@@ -1074,9 +1248,11 @@ export class Renderer {
     ctx.restore();
 
     // Vidrio y aros de hierro
-    ctx.strokeStyle = pulse > 0.05 ? '#ffd76a' : 'rgba(180,175,215,0.8)';
-    ctx.lineWidth = 2 + pulse * 2;
+    ctx.strokeStyle = unlimited ? '#ffd76a' : (pulse > 0.05 ? '#ffd76a' : 'rgba(180,175,215,0.8)');
+    ctx.lineWidth = 2 + pulse * 2 + (unlimited ? 2 : 0);
+    if (unlimited) { ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 10 + 6 * Math.sin(this.t * 8); }
     ctx.stroke();
+    ctx.shadowBlur = 0;
     ctx.strokeStyle = 'rgba(120,110,150,0.85)';
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -1086,11 +1262,18 @@ export class Renderer {
     ctx.fillStyle = '#6b5637';
     ctx.fillRect(x + 12, y - 8, vw - 24, 9);
 
-    // Etiqueta y disponibilidad del golpe (habilidad especial)
+    // Etiqueta: mientras dura el premio del fugitivo muestra ∞ y el tiempo
+    // que queda, para poder decidir si conviene gastar todo ya.
     ctx.textAlign = 'center';
-    ctx.font = '11px Georgia, serif';
-    ctx.fillStyle = boosting ? '#ffd76a' : 'rgba(210,200,240,0.55)';
-    ctx.fillText('MAÍZ ARCANO'.replace('MAÍZ ARCANO', 'ENERGÍA'), x + vw / 2, y + vh + 16);
+    if (unlimited) {
+      ctx.font = 'bold 13px Georgia, serif';
+      ctx.fillStyle = '#ffd76a';
+      ctx.fillText(`∞  ${pl.unlimitedT.toFixed(1)}s`, x + vw / 2, y + vh + 17);
+    } else {
+      ctx.font = '11px Georgia, serif';
+      ctx.fillStyle = boosting ? '#ffd76a' : 'rgba(210,200,240,0.55)';
+      ctx.fillText('ENERGÍA', x + vw / 2, y + vh + 16);
+    }
 
     // Runa de habilidad: brilla cuando el golpe está disponible
     const ready = pl.rider.cooldownT <= 0 && pl.rider.phase !== 'whip';
