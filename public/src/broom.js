@@ -16,10 +16,14 @@ export class Broom {
     this.tuckAmount = 0;   // lo setea el jinete, lo usa el control
     this.aimLag = 0;       // desfase cursor↔escoba, lo lee el latigazo
     this.aimOverride = null; // ángulo forzado durante un golpe dirigido
-    // --- Clavada en superficie ---
-    this.stuck = null;       // { x, y, nx, ny, t, work, angle }
-    this.stuckCd = 0;        // no se puede volver a clavar de inmediato
-    this.strain = 0;         // 0..1 esfuerzo visible del forcejeo
+    // --- Golpazo contra superficie ---
+    this.stuckCd = 0;        // no se puede encadenar dos golpazos
+    this.slamT = 0;          // segundos de descontrol que quedan
+    this.slamMag = 0;        // 0..1 fuerza del golpe, para los FX
+    this.strain = 0;         // 0..1 esfuerzo visible (lo lee el jinete)
+    // Aceleración a lo largo del palo, normalizada y suavizada (~[-1,1]).
+    // + = acelerando, − = frenando. La lee el jinete para la inercia del cuerpo.
+    this.accelLong = 0;
     this._hoverT = Math.random() * 10; // fase propia (dos escobas no laten igual)
   }
 
@@ -61,62 +65,36 @@ export class Broom {
     this.angVel += (rx * iy - ry * ix) / CFG.broom.inertia;
   }
 
-  // Clava la punta en una superficie. Solo lo llama la detección de choque
-  // frontal fuerte: acá ya está decidido que corresponde.
-  impale(nx, ny) {
-    // Se ancla la posición actual: la punta queda donde pegó.
-    this.stuck = { x: this.pos.x, y: this.pos.y, nx, ny, t: 0, work: 0 };
-    this.stuckAngle = this.angle;
-    this.vel.x = 0; this.vel.y = 0; this.angVel = 0;
-  }
-
-  releaseStuck(dirX, dirY) {
+  // Golpe fuerte contra una superficie. Antes esto CLAVABA la escoba y había
+  // que forcejear para salir; se sacó porque quedarse pegado a una pared corta
+  // el ritmo del partido y se siente a castigo. Ahora el choque se nota —
+  // rebota, gira descontrolado y el cuerpo se desarma un instante— pero el
+  // control vuelve solo en `slamTime`, sin que el jugador tenga que hacer nada.
+  slam(nx, ny, speed) {
     const S = CFG.stuck;
-    this.stuck = null;
+    // Rebote seco contra la pared: pierde casi toda la velocidad de entrada y
+    // sale despedido hacia afuera, no la conserva como en un rebote elástico.
+    const vn = this.vel.x * nx + this.vel.y * ny;
+    this.vel.x = (this.vel.x - vn * nx * 1.7) * 0.28 + nx * S.slamPush;
+    this.vel.y = (this.vel.y - vn * ny * 1.7) * 0.28 + ny * S.slamPush;
+    // Descontrol: la escoba queda girando y por `slamTime` no obedece al
+    // cursor. Es el "se desploma" — dura poco pero se ve.
+    this.angVel += (Math.random() * 2 - 1) * S.slamSpin;
+    this.slamT = S.slamTime;
+    this.slamMag = clamp(speed / 900, 0.35, 1);
     this.stuckCd = S.cooldown;
-    this.strain = 0;
-    // Se desprende de golpe, hacia donde el jugador estaba forcejeando
-    this.vel.x += dirX * S.popSpeed;
-    this.vel.y += dirY * S.popSpeed;
-    this.angVel += (Math.random() * 2 - 1) * 6;
-  }
-
-  // Mientras está clavada: el jugador cincha, el esfuerzo se acumula y al
-  // llenarse (o al agotarse el tiempo) se libera. Devuelve la dirección del
-  // forcejeo para que quien la llame haga los efectos.
-  _updateStuck(dt, ctl) {
-    const S = CFG.stuck;
-    const s = this.stuck;
-    s.t += dt;
-
-    // Hacia dónde quiere ir el jugador: el cursor manda, el acelerador suma
-    let tx = ctl.aim.x - this.pos.x, ty = ctl.aim.y - this.pos.y;
-    const tl = Math.hypot(tx, ty) || 1;
-    tx /= tl; ty /= tl;
-    // Cinchar en contra de la superficie es lo que la saca
-    const pull = Math.max(0, -(tx * s.nx + ty * s.ny)) * 0.35 + 0.65;
-    const effort = (ctl.thrust ? 1 : 0.45) * pull * S.escapeGain;
-    s.work += effort * dt;
-    this.strain = clamp(s.work / S.escapeWork, 0, 1);
-
-    // La escoba vibra, cada vez más fuerte
-    const shake = this.strain * 3.4;
-    this.angle = this.stuckAngle + Math.sin(s.t * 46) * 0.05 * this.strain;
-    this.pos.x = s.x - s.nx * 0 + Math.sin(s.t * 53) * shake * 0.35;
-    this.pos.y = s.y + Math.cos(s.t * 61) * shake * 0.35;
-
-    this.strainDir = { x: tx, y: ty }; // lo lee el jinete para cinchar
-
-    const done = s.work >= S.escapeWork || s.t >= S.maxTime;
-    if (done) { this.releaseStuck(tx, ty); return { released: true, tx, ty }; }
-    return { released: false, tx, ty };
   }
 
   update(dt, ctl) {
     const B = CFG.broom;
     if (this.stuckCd > 0) this.stuckCd -= dt;
-    if (this.stuck) return this._updateStuck(dt, ctl);
     this.strain = 0;
+
+    // Velocidad al entrar al paso: se compara contra la de salida para sacar
+    // la aceleración real. Es lo que lee el jinete para estirarse hacia atrás
+    // al acelerar y encogerse al frenar — sale de la física, no del input, así
+    // que un choque o la onda del gol también lo deforman.
+    const v0x = this.vel.x, v0y = this.vel.y;
 
     // --- Rotación: perseguir el ángulo hacia el cursor ---
     const targetAngle = Math.atan2(ctl.aim.y - this.pos.y, ctl.aim.x - this.pos.x);
@@ -133,7 +111,13 @@ export class Broom {
     if (this.aimOverride != null) { useAngle = this.aimOverride; gain = B.overrideMul; }
     const useDiff = wrapAngle(useAngle - this.angle);
 
-    const tuckMul = (1 + (B.tuckAngMul - 1) * this.tuckAmount) * gain;
+    // Aturdimiento tras un golpazo: durante `slamT` la escoba casi no responde
+    // al cursor, así que se la ve tumbada girando sola antes de reponerse. Se
+    // recupera sola y rápido — es un tropiezo, no un castigo.
+    if (this.slamT > 0) this.slamT = Math.max(0, this.slamT - dt);
+    const slamF = this.slamT > 0 ? CFG.stuck.slamControl : 1;
+
+    const tuckMul = (1 + (B.tuckAngMul - 1) * this.tuckAmount) * gain * slamF;
     let angAcc = (B.angK * useDiff - B.angD * this.angVel) * tuckMul;
     angAcc = clamp(angAcc, -B.angAccMax * tuckMul, B.angAccMax * tuckMul);
     this.angVel += angAcc * dt;
@@ -151,22 +135,35 @@ export class Broom {
     // actualizando para que los FX y el sonido funcionen igual.
     if (ctl.thrust && !ctl.noThrustForce) {
       const d = this.dir();
-      const mul = 1 + (CFG.boost.thrustMul - 1) * this.boostPower;
+      // Aturdido tampoco acelera: acelerar a fondo mientras la escoba está
+      // dada vuelta anularía la sensación del golpe.
+      const mul = (1 + (CFG.boost.thrustMul - 1) * this.boostPower) * slamF;
       this.vel.x += d.x * B.thrust * mul * dt;
       this.vel.y += d.y * B.thrust * mul * dt;
     }
 
-    // --- Gravedad ---
-    this.vel.y += B.gravity * dt;
-
-    // --- Zumbido de levitación: leve vida propia SIEMPRE presente, aun sin
-    // acelerar — vende que la escoba flota con magia y no está clavada en
-    // el aire. Deliberadamente no tira hacia el cursor: mover el mouse
-    // orienta (ver rotación arriba), pero moverse en el espacio sigue
-    // siendo una decisión del jugador vía LMB.
+    // --- Levitación mágica: sin gravedad, flotación ondulante ---
+    // La escoba flota sola. En vez de caer, oscila suavemente en el aire
+    // con ondas de amplitud y frecuencia distintas en X e Y para que el
+    // movimiento se vea orgánico y no mecánico.
     this._hoverT += dt;
-    this.vel.x += Math.cos(this._hoverT * 2.3) * 9 * dt;
-    this.vel.y += Math.sin(this._hoverT * 3.1) * 15 * dt;
+    // Ondas en Y: el empuje vertical neto es cero en promedio (no cae, no sube)
+    // pero se siente vivo — como flotar en agua quieta.
+    const hoverY = Math.sin(this._hoverT * 1.7) * 38          // onda lenta y amplia
+                 + Math.sin(this._hoverT * 3.9 + 1.2) * 18;   // onda rápida y suave
+    // Ondas en X: deriva lateral muy leve, hace que nunca esté perfectamente quieto.
+    const hoverX = Math.cos(this._hoverT * 2.3 + 0.7) * 14
+                 + Math.cos(this._hoverT * 5.1 + 2.4) * 6;
+    this.vel.x += hoverX * dt;
+    this.vel.y += hoverY * dt;
+
+    // Amortiguación suave de la velocidad vertical cuando no hay input:
+    // evita que la ondulación acumule deriva — la escoba oscila pero no
+    // se va al cielo ni al suelo.
+    if (!ctl.thrust) {
+      this.vel.y *= Math.exp(-1.2 * dt);
+      this.vel.x *= Math.exp(-0.5 * dt);
+    }
 
     // --- Freno aéreo (RMB): la escoba frena, el cuerpo sigue ---
     this.brakePower = damp(this.brakePower, ctl.brake ? 1 : 0, 14, dt);
@@ -180,15 +177,45 @@ export class Broom {
     this.vel.x *= f;
     this.vel.y *= f;
 
+    // --- Aceleración longitudinal (para la inercia del cuerpo) ---
+    // Se proyecta el cambio de velocidad sobre el eje de la escoba: positivo
+    // = ganando velocidad hacia adelante, negativo = frenando. Normalizado
+    // contra la aceleración de propulsión, así queda en un rango ~[-1, 1]
+    // independiente de la escala del juego. Suavizado porque el valor crudo
+    // de un solo paso a 120 Hz salta demasiado para animar con él.
+    {
+      const d = this.dir();
+      const along = ((this.vel.x - v0x) * d.x + (this.vel.y - v0y) * d.y) / Math.max(dt, 1e-6);
+      const norm = clamp(along / B.thrust, -2.5, 2.5);
+      this.accelLong = damp(this.accelLong ?? 0, norm, 11, dt);
+    }
+
     // --- Integración ---
     this.pos.x += this.vel.x * dt;
     this.pos.y += this.vel.y * dt;
   }
 
+  // Limpia TODO el estado, no solo la pose. Faltaba borrar `stuck`: un mago
+  // clavado en la pared cuando entraba el gol revivía clavado, y en el primer
+  // paso `_updateStuck` lo re-anclaba a las coordenadas viejas de la pared —
+  // se teletransportaba fuera del saque. Ese era el bug de "arranca en otro
+  // lado". Lo mismo con boost/override, que dejaban al mago acelerando o
+  // apuntando a un objetivo del punto anterior.
   reset(x, y, angle) {
     this.pos.x = x; this.pos.y = y;
     this.vel.x = 0; this.vel.y = 0;
     this.angle = angle; this.angVel = 0;
     this.thrustPower = 0; this.brakePower = 0;
+    this.stuckCd = 0;
+    this.slamT = 0;
+    this.slamMag = 0;
+    this.strain = 0;
+    this.accelLong = 0;
+    this.strainDir = null;
+    this.boosting = false;
+    this.boostPower = 0;
+    this.tuckAmount = 0;
+    this.aimLag = 0;
+    this.aimOverride = null;
   }
 }

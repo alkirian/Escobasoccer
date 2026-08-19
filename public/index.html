@@ -3,16 +3,105 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Escoba Voladora</title>
-  <link rel="icon" href="data:,">
+  <title>Escoba Voladora — fútbol de magos en escobas</title>
+  <meta name="description" content="Deporte mágico 1v1 y 2v2: magos colgados de escobas físicas pelean por meter la pelota en el portal rival. Golpes cargados, dashes, orbes y explosiones de gol. Gratis, en tu navegador.">
+  <meta name="theme-color" content="#0a0c18">
+  <!-- Vista previa al compartir el link. og:image necesita URL absoluta:
+       cuando el juego tenga dominio, agregá
+       <meta property="og:image" content="https://TU-DOMINIO/captura.jpg"> -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Escoba Voladora">
+  <meta property="og:description" content="Fútbol de magos en escobas voladoras: física alocada, golpes cargados y explosiones de gol. Jugá gratis en el navegador.">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="style.css">
+  <style>
+    /* Accesos que el menú (canvas) no dibuja: galería y editor */
+    .corner-links {
+      position: fixed; right: 14px; bottom: 12px; z-index: 5;
+      display: flex; gap: 14px;
+      font: 13px system-ui, sans-serif;
+    }
+    .corner-links a {
+      color: #8a93be; text-decoration: none;
+      padding: 6px 10px; border-radius: 8px;
+      transition: .15s;
+    }
+    .corner-links a:hover { color: #e8ecff; background: rgba(255,255,255,.06); }
+  </style>
+  <script>
+    // roundRect llegó a Safari 16 / Firefox 112: este relleno cubre versiones
+    // anteriores. Corre antes que cualquier módulo del juego.
+    if (!CanvasRenderingContext2D.prototype.roundRect) {
+      CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+        r = Math.min(Math.abs(Array.isArray(r) ? r[0] : (r || 0)), Math.abs(w) / 2, Math.abs(h) / 2);
+        this.moveTo(x + r, y);
+        this.arcTo(x + w, y, x + w, y + h, r);
+        this.arcTo(x + w, y + h, x, y + h, r);
+        this.arcTo(x, y + h, x, y, r);
+        this.arcTo(x, y, x + w, y, r);
+        this.closePath();
+        return this;
+      };
+    }
+  </script>
 </head>
 <body>
   <canvas id="game"></canvas>
+  <div class="corner-links">
+    <a href="personajes.html">🧙 Personajes</a>
+    <a href="veditor.html">✏️ Crear el mío</a>
+  </div>
   <div id="rotate-hint">
     <div class="icon">🧹↻</div>
     <p>Girá el teléfono — la cancha es horizontal</p>
   </div>
-  <script type="module" src="src/main.js"></script>
+  <script type="module">
+    import { Menu } from './src/menu.js';
+
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    function resize() {
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width  = innerWidth  * dpr;
+      canvas.height = innerHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    addEventListener('resize', resize);
+    resize();
+
+    // Al confirmar, el menú entrega la configuración elegida y se pasa por
+    // query string a play.html (la página del partido).
+    const menu = new Menu(canvas, (cfg) => {
+      const q = new URLSearchParams();
+      q.set('mode', cfg.mode);
+      q.set('duration', cfg.opts.duration);
+      q.set('difficulty', cfg.opts.difficulty);
+      if (!cfg.opts.sound) q.set('mute', '1');
+      if (!cfg.opts.orbs)  q.set('noorbs', '1');
+      location.href = `play.html?${q}`;
+    });
+
+    let last = performance.now();
+    function frame(now) {
+      requestAnimationFrame(frame);
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      menu.update(dt);
+      menu.draw();
+    }
+    requestAnimationFrame(frame);
+  </script>
+  <script>
+    // PWA: con el service worker el juego queda jugable offline y se puede
+    // "Agregar a pantalla de inicio". Red primero: nunca sirve archivos viejos
+    // teniendo conexion.
+    if ('serviceWorker' in navigator) {
+      addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    }
+  </script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 import { Broom } from './broom.js';
 import { Rider } from './rider.js';
 import { CFG } from './config.js';
-import { clamp } from './utils.js';
+import { clamp, damp } from './utils.js';
 
 export class Player {
   constructor(x, y, angle, team) {
@@ -62,12 +62,22 @@ export class Player {
   update(dt, frozen = false, target = null) {
     if (this.ramCd > 0) this.ramCd -= dt;
     if (frozen) {
-      // Cuenta regresiva: la escoba se mantiene en posición, el cuerpo se acomoda
-      this.broom.vel.x *= 0.85;
-      this.broom.vel.y *= 0.85;
-      this.broom.angVel *= 0.85;
-      this.broom.pos.x += this.broom.vel.x * dt;
-      this.broom.pos.y += this.broom.vel.y * dt;
+      // Cuenta regresiva: la escoba queda CLAVADA en su saque. Antes acá se
+      // integraba la posición con un amortiguado de 0.85 por paso, y eso era
+      // el bug de "a veces arranca en otro lado": tras la explosión del gol un
+      // mago sale a miles de u/s, y aunque el amortiguado frena rápido, en los
+      // ~1.4 s de countdown alcanzaba a recorrer cientos de píxeles. El reset
+      // lo dejaba bien y el countdown lo mandaba de paseo. Fijarlo es además
+      // lo correcto: el saque tiene que ser idéntico siempre, no depender de
+      // con cuánta violencia terminó el punto anterior.
+      this.broom.pos.x = this.spawn.x;
+      this.broom.pos.y = this.spawn.y;
+      this.broom.vel.x = 0;
+      this.broom.vel.y = 0;
+      this.broom.angVel = 0;
+      // El ángulo vuelve al del saque de forma suave: es lo único que se deja
+      // animar, porque se lee como el mago acomodándose antes del pitazo.
+      this.broom.angle = damp(this.broom.angle, this.spawn.angle, 9, dt);
       this.rider.update(dt, false);
       return;
     }

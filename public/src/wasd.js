@@ -282,7 +282,7 @@ function step(dt) {
     pl.addEnergy(CFG.orbs.energy);
     particles.orbAbsorb(orb.fx, oy, pl.broom.pos, CFG.colors.p1);
     sound.orb();
-  });
+  }, dt);
 
   ball.update(dt);
   interactPlayerBall(player, ball, dt, fx);

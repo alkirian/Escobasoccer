@@ -4,8 +4,12 @@ import { rand } from './utils.js';
 export class Particles {
   constructor() { this.list = []; }
 
+  // El tope se aplica soltando la partícula nueva, no desplazando el array:
+  // `shift()` reindexa las 600 en cada spawn, y durante el gol se spawnean
+  // cientos seguidos — era O(n²) en el peor momento posible. Descartar la
+  // nueva es invisible (ya hay 600 en pantalla) y cuesta cero.
   spawn(x, y, vx, vy, life, size, color, grav = 0, fade = true) {
-    if (this.list.length > 600) this.list.shift();
+    if (this.list.length >= 600) return;
     this.list.push({ x, y, vx, vy, life, maxLife: life, size, color, grav, fade });
   }
 
@@ -110,6 +114,36 @@ export class Particles {
     }
   }
 
+  // Polvo mágico que suelta la pelota al volar. Escala con la velocidad: en
+  // reposo no emite nada (sería ruido visual constante), y a máxima velocidad
+  // deja un reguero denso que se lee como energía, no como suciedad.
+  //
+  // `speedF` 0..1 = qué tan rápido va respecto de su máximo.
+  ballSparkle(x, y, vx, vy, speedF) {
+    if (speedF < 0.12) return;                     // quieta: no ensucia
+    if (Math.random() > 0.25 + speedF * 0.75) return;
+    const sp = Math.hypot(vx, vy) || 1;
+    const ux = vx / sp, uy = vy / sp;
+    // Perpendicular al vuelo: las chispas se abren en abanico hacia los lados
+    // en vez de quedar alineadas, que es lo que hace que se lea como estela
+    // ancha y no como una línea de puntos.
+    const px = -uy, py = ux;
+    const n = 1 + (Math.random() < speedF ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const side = rand(-1, 1);
+      const back = rand(0.04, 0.16);
+      this.spawn(
+        x + px * side * rand(2, 9), y + py * side * rand(2, 9),
+        -ux * sp * back + px * side * rand(30, 90),
+        -uy * sp * back + py * side * rand(30, 90),
+        rand(0.25, 0.6) * (0.6 + speedF * 0.6),
+        rand(1.6, 3.6) + speedF * 2.2,
+        Math.random() < 0.45 ? '#fff8dc' : (Math.random() < 0.6 ? '#ffe9a8' : '#ffd76a'),
+        -25,   // flotan apenas hacia arriba mientras se apagan
+      );
+    }
+  }
+
   // El orbe fugitivo se materializa (o se desvanece): anillo dorado
   runnerBurst(x, y) {
     for (let i = 0; i < 40; i++) {
@@ -151,11 +185,15 @@ export class Particles {
       rand(0.2, 0.45), rand(2, 4), Math.random() < 0.5 ? '#ffd08a' : '#cfc7b4', 420);
   }
 
+  // Compactación en un solo pase en vez de `splice` por partícula muerta:
+  // splice reindexa la cola del array cada vez, y al apagarse la explosión
+  // mueren cientos en el mismo frame. Este barrido es O(n) pase lo que pase.
   update(dt) {
-    for (let i = this.list.length - 1; i >= 0; i--) {
+    let w = 0;
+    for (let i = 0; i < this.list.length; i++) {
       const p = this.list[i];
       p.life -= dt;
-      if (p.life <= 0) { this.list.splice(i, 1); continue; }
+      if (p.life <= 0) continue;
       // Las partículas con "seek" son atraídas por el jugador: eso convierte
       // un estallido genérico en una absorción legible.
       if (p.seek) {
@@ -166,16 +204,40 @@ export class Particles {
       p.vy += p.grav * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
+      this.list[w++] = p;
     }
+    this.list.length = w;
   }
 
+  // Dibujar una partícula por vez costaba dos cambios de estado del contexto
+  // (globalAlpha + fillStyle) por partícula: con 600 en pantalla eso son 1200
+  // por frame, y es lo que hacía trancar la explosión del gol — no los
+  // fillRect. Acá se agrupan por (color, alpha cuantizado a 1/8) y se emite un
+  // solo cambio de estado por grupo: ~30 en vez de 1200. El escalón de alpha no
+  // se nota porque las partículas viven medio segundo y se mueven rápido.
   draw(ctx) {
+    if (this.list.length === 0) return;
+
+    const buckets = new Map();
     for (const p of this.list) {
       const t = p.life / p.maxLife;
-      ctx.globalAlpha = p.fade ? t : 1;
-      ctx.fillStyle = p.color;
-      const s = p.size * (0.5 + t * 0.5);
-      ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+      const a = p.fade ? Math.max(1, Math.ceil(t * 8)) : 8;
+      const key = p.color + '|' + a;
+      let b = buckets.get(key);
+      if (!b) { b = { color: p.color, alpha: a / 8, items: [] }; buckets.set(key, b); }
+      b.items.push(p, t);
+    }
+
+    for (const b of buckets.values()) {
+      ctx.globalAlpha = b.alpha;
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      for (let i = 0; i < b.items.length; i += 2) {
+        const p = b.items[i], t = b.items[i + 1];
+        const s = p.size * (0.5 + t * 0.5);
+        ctx.rect(p.x - s / 2, p.y - s / 2, s, s);
+      }
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
   }

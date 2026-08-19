@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escoba Voladora — Editor vectorial</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #0a0c18;
+    --panel:   #141830;
+    --panel2:  #1b2040;
+    --line:    #2a3157;
+    --text:    #e8ecff;
+    --muted:   #8a93be;
+    --accent:  #ffd54a;
+    --ok:      #6ee7a0;
+    --bad:     #ff7a8c;
+  }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    height: 100vh; overflow: hidden;
+    display: grid; grid-template-columns: 1fr 360px;
+  }
+
+  .stage-wrap { position: relative; display: flex; flex-direction: column; }
+  #stage { flex: 1; width: 100%; display: block; cursor: crosshair; }
+
+  .stage-top {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    padding: 12px 16px;
+    background: linear-gradient(180deg, rgba(10,12,24,0.92), transparent);
+  }
+  .stage-bottom {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    padding: 12px 16px;
+    background: linear-gradient(0deg, rgba(10,12,24,0.92), transparent);
+    font-size: 12px; color: var(--muted);
+  }
+
+  .pose {
+    background: var(--panel); color: var(--muted);
+    border: 1px solid var(--line); border-radius: 7px;
+    padding: 6px 12px; font-size: 12px; cursor: pointer; transition: .12s;
+  }
+  .pose:hover { color: var(--text); border-color: #3d4780; }
+  .pose.on { background: var(--accent); color: #1a1400; border-color: var(--accent); font-weight: 600; }
+
+  label.chk { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+  input[type=range] { accent-color: var(--accent); cursor: pointer; }
+  #manualRow { display: none; align-items: center; gap: 8px; }
+
+  .side {
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .side h1 {
+    font-size: 15px; padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .side h1 small { font-size: 11px; color: var(--muted); font-weight: 400; }
+  .scroll { flex: 1; overflow-y: auto; padding: 12px 14px 20px; }
+  .scroll::-webkit-scrollbar { width: 8px; }
+  .scroll::-webkit-scrollbar-thumb { background: #2c3360; border-radius: 4px; }
+
+  h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 16px 0 8px;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  h2:first-child { margin-top: 0; }
+  h2 .h2sub { text-transform: none; letter-spacing: 0; font-size: 10px; color: #55608f; }
+
+  /* Grilla de formas para agregar */
+  .shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+  .shape {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    color: var(--text); font-size: 11.5px; padding: 8px 4px; cursor: pointer;
+    text-align: center; transition: .12s;
+  }
+  .shape:hover { border-color: var(--accent); background: #232a52; }
+
+  /* Lista de capas */
+  .layer {
+    display: flex; align-items: center; gap: 5px; width: 100%;
+    background: var(--panel2); border: 1px solid transparent;
+    border-radius: 8px; padding: 5px 6px 5px 8px; margin-bottom: 4px;
+    font-size: 12px; transition: .12s;
+  }
+  .layer.on { border-color: var(--accent); background: #232a52; }
+  .layer .sw {
+    width: 15px; height: 15px; border-radius: 4px; flex: none;
+    border: 1px solid rgba(255,255,255,.25);
+  }
+  .layer .lname { flex: 1; cursor: pointer; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .layer:hover .lname { color: var(--accent); }
+  .layer.hid .lname { opacity: .4; text-decoration: line-through; }
+  .layer button.mini { margin-left: 0; padding: 1px 6px; font-size: 11px; }
+
+  .hint { font-size: 11px; color: var(--muted); margin: 7px 2px 0; line-height: 1.4; }
+
+  .slider { margin-bottom: 9px; }
+  .slider label {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--muted); margin-bottom: 3px;
+  }
+  .slider label b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .slider input { width: 100%; }
+  .checkrow {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-top: 10px; font-size: 12px;
+  }
+  .checkrow label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .muted { color: var(--muted); font-size: 12px; }
+
+  .colorrow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 12px; }
+  .colorrow label { flex: 1; color: var(--muted); }
+  .colorrow input[type=color] {
+    width: 42px; height: 26px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel2); cursor: pointer; padding: 1px;
+  }
+  select.sel {
+    width: 100%; background: #0e1226; color: var(--text);
+    border: 1px solid var(--line); border-radius: 7px;
+    padding: 7px 9px; font-size: 13px; font-family: inherit; margin-bottom: 8px;
+  }
+  select.sel:focus { outline: none; border-color: var(--accent); }
+
+  button.act {
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 7px;
+    padding: 8px 12px; font-size: 12px; cursor: pointer; transition: .12s;
+  }
+  button.act:hover { border-color: #3d4780; background: #232a52; }
+  button.act.primary { background: var(--accent); color: #1a1400; border-color: var(--accent); font-weight: 600; }
+  button.act.primary:hover { filter: brightness(1.08); }
+  button.act.danger:hover { border-color: var(--bad); color: var(--bad); }
+  button.mini {
+    background: none; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 5px; padding: 3px 8px; font-size: 11px; cursor: pointer;
+    margin-left: auto;
+  }
+  button.mini:hover { color: var(--text); border-color: #3d4780; }
+  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btnrow button { flex: 1; min-width: 0; }
+
+  input.text {
+    width: 100%; background: #0e1226; color: var(--text);
+    border: 1px solid var(--line); border-radius: 7px;
+    padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  input.text:focus { outline: none; border-color: var(--accent); }
+
+  .toast {
+    position: fixed; bottom: 22px; left: 44%;
+    transform: translate(-50%, 16px);
+    background: var(--accent); color: #1a1400;
+    padding: 9px 18px; border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    opacity: 0; pointer-events: none; transition: .22s;
+    z-index: 10;
+  }
+  .toast.show { opacity: 1; transform: translate(-44%, 0); }
+  .toast.bad { background: var(--bad); color: #2a0008; }
+
+  .guide {
+    background: #10142a; border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px;
+    font-size: 11px; color: var(--muted); line-height: 1.5;
+  }
+  .guide b { color: var(--text); }
+
+  .usegame {
+    display: flex; align-items: center; gap: 8px;
+    background: #10142a; border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 12px; font-size: 12.5px; cursor: pointer; user-select: none;
+  }
+  .usegame b { color: var(--ok); }
+
+  @media (max-width: 900px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; }
+    .side { border-left: none; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage-wrap">
+  <canvas id="stage"></canvas>
+
+  <div class="stage-top">
+    <div id="poseRow" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <div id="manualRow">
+      <span style="font-size:12px;color:var(--muted)">Ángulo</span>
+      <input type="range" id="manualAngle" min="-3.14" max="3.14" step="0.01" value="0" style="width:130px">
+    </div>
+    <span style="margin-left:auto;display:flex;gap:6px">
+      <button class="act" id="btnUndo" title="Ctrl+Z">↶ Deshacer</button>
+      <button class="act" id="btnRedo" title="Ctrl+Y">↷ Rehacer</button>
+    </span>
+  </div>
+
+  <div class="stage-bottom">
+    <label class="chk"><input type="checkbox" id="toggleBones" checked> Huesos</label>
+    <label class="chk"><input type="checkbox" id="toggleGeo" checked> Referencia</label>
+    <label class="chk"><input type="checkbox" id="toggleTeam"> Ver como equipo naranja</label>
+    <span style="display:flex;align-items:center;gap:7px">
+      Zoom <input type="range" id="zoom" min="0.5" max="3" step="0.05" value="1.6" style="width:110px">
+    </span>
+    <span id="stageInfo" style="margin-left:auto;font-variant-numeric:tabular-nums"></span>
+  </div>
+</div>
+
+<aside class="side">
+  <h1>
+    Editor vectorial
+    <small id="progress">0 capas</small>
+  </h1>
+
+  <div class="scroll">
+    <h2>Nombre</h2>
+    <input class="text" id="skinName" value="Mi héroe" placeholder="Nombre del personaje">
+
+    <h2>Agregar forma <small class="h2sub">se ancla a la parte elegida abajo</small></h2>
+    <div class="shapes" id="shapeGrid"></div>
+
+    <h2>Capas <small class="h2sub">adelante abajo · click para editar</small></h2>
+    <div id="layerList"></div>
+
+    <h2>Capa seleccionada</h2>
+    <div id="propsPanel"><p class="muted">Agregá una forma para empezar, o cargá la plantilla.</p></div>
+
+    <h2>Usar en el juego</h2>
+    <label class="usegame">
+      <input type="checkbox" id="useInGame">
+      <span>Reemplazar mi personaje con este skin <b id="useState"></b></span>
+    </label>
+    <p class="hint">Guardá primero. Con esto activado, el juego dibuja tu creación en
+    lugar del héroe elegido. Desactivalo para volver a los personajes del plantel.</p>
+
+    <h2>Guardar</h2>
+    <div class="btnrow" style="margin-bottom:6px">
+      <button class="act primary" id="btnSave">Guardar</button>
+      <button class="act" id="btnLoad">Cargar</button>
+      <button class="act" id="btnTemplate">Plantilla</button>
+    </div>
+    <div class="btnrow" style="margin-bottom:6px">
+      <button class="act" id="btnExport">Exportar .json</button>
+      <button class="act" id="btnImport">Importar</button>
+    </div>
+    <input type="file" id="importInput" accept=".json,application/json" hidden>
+    <div class="btnrow">
+      <button class="act danger" id="btnDelLayer">Borrar capa</button>
+      <button class="act danger" id="btnClearAll">Borrar todo</button>
+    </div>
+
+    <h2>Cómo funciona</h2>
+    <div class="guide">
+      Cada capa es una <b>forma</b> pegada a un hueso del muñeco: lo sigue
+      cuando la física lo mueve. Armá el cuerpo con cápsulas, la cabeza con un
+      óvalo, y decorá con lo demás.<br><br>
+      <b>Sobre el dibujo:</b> arrastrá la forma para moverla · punto
+      <span style="color:#7ee8a2">verde</span> = rotar · <span style="color:#5ce1e6">celeste</span> = largo ·
+      <span style="color:#ff9d6b">naranja</span> = grosor.<br>
+      <b>Teclas:</b> Ctrl+Z deshacer · Ctrl+Y rehacer · Supr borra la capa.
+    </div>
+
+    <div class="btnrow" style="margin-top:14px">
+      <a class="act" style="text-decoration:none;text-align:center" href="personajes.html">← Personajes</a>
+      <a class="act" style="text-decoration:none;text-align:center" href="play.html">Jugar →</a>
+    </div>
+  </div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="src/veditor.js"></script>
+</body>
+</html>

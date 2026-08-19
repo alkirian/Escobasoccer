@@ -64,7 +64,6 @@ export function collideBroomArena(broom, onBounce, onImpale) {
   const r = CFG.broom.tipR;
   const bn = CFG.broom.bounce;
   const S = CFG.stuck;
-  if (broom.stuck) return;
   const ends = [{ p: broom.tip(), isTip: true }, { p: broom.tail(), isTip: false }];
   for (const { p: end, isTip } of ends) {
     let nx = 0, ny = 0, pen = 0;
@@ -81,13 +80,13 @@ export function collideBroomArena(broom, onBounce, onImpale) {
     const v = broom.velAt(end.x, end.y);
     const vn = v.x * nx + v.y * ny;
 
-    // ¿Clavada? Punta primero, rápido y de frente contra la superficie.
+    // ¿Golpazo? Punta primero, rápido y de frente contra la superficie.
     if (isTip && onImpale && broom.stuckCd <= 0 && vn < 0) {
       const speed = Math.hypot(v.x, v.y);
       const d = broom.dir();
       const align = -(d.x * nx + d.y * ny); // 1 = perpendicular a la pared
       if (speed >= S.minSpeed && align >= S.minAlign) {
-        broom.impale(nx, ny);
+        broom.slam(nx, ny, speed);
         onImpale(end.x, end.y, nx, ny, speed);
         return;
       }

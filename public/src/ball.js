@@ -48,8 +48,16 @@ export class Ball {
       this.fire = 0;
     }
 
-    this.trail.push({ x: this.pos.x, y: this.pos.y, sp, fire: this.fire });
-    if (this.trail.length > 18) this.trail.shift();
+    // Estela. Se guarda la velocidad además de la posición porque el render
+    // dibuja una CINTA (un polígono que sigue el camino) en vez de una fila de
+    // círculos: para darle ancho necesita saber hacia dónde iba la pelota en
+    // cada punto. Con 26 muestras la cinta es continua incluso a máxima
+    // velocidad — con 18 se veía a tramos.
+    this.trail.push({
+      x: this.pos.x, y: this.pos.y, sp, fire: this.fire,
+      vx: this.vel.x, vy: this.vel.y,
+    });
+    if (this.trail.length > 26) this.trail.shift();
   }
 
   kick(ix, iy) {

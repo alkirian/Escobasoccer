@@ -58,8 +58,44 @@ const POSE_EXTEND = scalePose({
   footB:  { x: -63, y: -17 },
 });
 
+// Postura de inercia al ACELERAR: el cuerpo se queda atrás y se estira sobre
+// el palo, como quien arranca de golpe en una moto. El torso baja y retrocede,
+// la cabeza se hunde entre los hombros y las piernas se van al fondo. Es puro
+// arrastre visual — la escoba ya se movió, el cuerpo todavía no.
+const POSE_DRAG = scalePose({
+  pelvis: { x: -30, y: -11 },
+  chest:  { x: -18, y: -26 },
+  head:   { x: -8,  y: -42 },
+  kneeF:  { x: -14, y: 6 },
+  footF:  { x: -30, y: 20 },
+  kneeB:  { x: -24, y: 8 },
+  footB:  { x: -40, y: 21 },
+});
+
+// Postura de inercia al FRENAR: el cuerpo sigue de largo hacia adelante y se
+// comprime contra las manos. El torso se endereza y sube, las rodillas se
+// pliegan. Es el opuesto exacto de POSE_DRAG y lo que hace que frenar se vea.
+const POSE_LURCH = scalePose({
+  pelvis: { x: -2,  y: -20 },
+  chest:  { x: 12,  y: -35 },
+  head:   { x: 22,  y: -50 },
+  kneeF:  { x: 16,  y: -6 },
+  footF:  { x: 6,   y: 14 },
+  kneeB:  { x: 8,   y: -4 },
+  footB:  { x: -2,  y: 16 },
+});
+
 // Agarres de las manos sobre el palo (siempre fijas ahí)
 const GRIPS = scalePose({ handF: { x: 20, y: -3 }, handB: { x: 34, y: -2 } });
+
+// Correa de postura: distancia máxima (unidades de mundo, se escala por S)
+// que cada punto puede alejarse de su objetivo de pose. La física deforma
+// dentro de este radio; más allá, se recorta. Es lo que impide que un golpe
+// o giro deje una pierna arriba de la cabeza.
+const LEASH = {
+  pelvis: 26, chest: 26, head: 32,
+  kneeF: 40, footF: 52, kneeB: 40, footB: 52,
+};
 
 // Pivote del latigazo: el punto medio entre las manos. Que el cuerpo orbite
 // ACÁ y no el centro de la escoba es lo que hace todo el truco — el brazo de
@@ -98,6 +134,13 @@ export class Rider {
     this.lastChargeF = 0;
     this.lastEnergyF = 0;
     this.footTrail = [];   // estela visual de los pies durante el latigazo
+    this.freezeFlip = null; // si no es null, fija el lado del cuerpo (1/-1) en
+                             // vez de recalcularlo del ángulo — evita que un
+                             // giro rápido (spin de golpe) cruce 90°/270°
+                             // varias veces por segundo y rompa la pose.
+    this.flipSide = 1;       // lado actual con histéresis: apuntando casi
+                             // vertical (cos≈0) NO alterna — mantiene el lado
+                             // hasta que el ángulo cruce con margen claro.
 
     // Crear puntos en la posición de la postura base
     for (const n of this.names) {
@@ -345,6 +388,36 @@ export class Rider {
     const swinging = this.phase !== 'idle' || Math.abs(this.swing) > 0.002;
     const cs = Math.cos(this.swing), sn = Math.sin(this.swing);
 
+    // Espejeo vertical: cuando la escoba apunta a la izquierda (cos < 0) la
+    // pose local se voltea en Y para que el jinete siempre quede encima.
+    // Se suaviza con el coseno del ángulo para que el flip sea gradual y no
+    // un salto brusco al cruzar los 90°.
+    // Lado del cuerpo con histéresis: solo cambia cuando el coseno cruza con
+    // margen (|cos| > 0.10). Apuntando casi vertical el lado NO parpadea.
+    // Si algo externo pidió congelar el lado (ej. un giro de 360° del golpe),
+    // se respeta eso en vez de recalcular: si no, el cuerpo cruzaría el
+    // umbral varias veces por segundo y quedaría en poses imposibles.
+    const fc = Math.cos(this.broom.angle);
+    if (Math.abs(fc) > 0.10) this.flipSide = fc >= 0 ? 1 : -1;
+    const flip = this.freezeFlip ?? this.flipSide;
+
+    // --- Inercia por aceleración ---
+    // La escoba mide su aceleración a lo largo del palo; el cuerpo la sufre.
+    // Acelerando se queda atrás (POSE_DRAG), frenando sigue de largo hacia
+    // adelante (POSE_LURCH). Durante el latigazo se anula: ahí manda el golpe
+    // y sumar arrastre encima ensuciaba el arco.
+    const accel = this.phase === 'idle' ? (this.broom.accelLong ?? 0) : 0;
+    const dragAmt  = clamp(accel, 0, 1) * R.dragPose;
+    const lurchAmt = clamp(-accel, 0, 1) * R.lurchPose;
+
+    // Sacudón del golpazo: escala con lo que queda de aturdimiento, así el
+    // cuerpo se desarma en el impacto y se recompone solo.
+    const slamT = this.broom.slamT ?? 0;
+    const slamF = slamT > 0
+      ? (slamT / CFG.stuck.slamTime) * (this.broom.slamMag ?? 1)
+      : 0;
+    this._slamPhase = (this._slamPhase ?? 0) + dt * 24;
+
     // --- Integración verlet + resortes de postura activa ---
     for (const n of this.names) {
       const p = this.points[n];
@@ -352,29 +425,36 @@ export class Rider {
       // Blend en dos etapas: base→recogido, y ese resultado→estirado
       let lx = lerp(lerp(base.x, tuck.x, this.tuck), ext.x, this.extend);
       let ly = lerp(lerp(base.y, tuck.y, this.tuck), ext.y, this.extend);
+      // Tercera etapa: la inercia. Va después del recogido y del estirado para
+      // que se sume a lo que el jugador esté haciendo en vez de pisarlo.
+      if (dragAmt > 0.001) {
+        const dp = POSE_DRAG[n];
+        lx = lerp(lx, dp.x, dragAmt);
+        ly = lerp(ly, dp.y, dragAmt);
+      } else if (lurchAmt > 0.001) {
+        const lp = POSE_LURCH[n];
+        lx = lerp(lx, lp.x, lurchAmt);
+        ly = lerp(ly, lp.y, lurchAmt);
+      }
+      // Espejear Y cuando mira a la izquierda: el cuerpo siempre encima
+      ly *= flip;
       // El cuerpo orbita el agarre. Las manos NO rotan (siguen clavadas al
       // palo más abajo): por eso esto es un giro colgado de las manos.
       if (swinging) {
-        const rx = lx - GRIP_PIVOT.x, ry = ly - GRIP_PIVOT.y;
+        const pivotY = GRIP_PIVOT.y * flip;
+        const rx = lx - GRIP_PIVOT.x, ry = ly - pivotY;
         lx = GRIP_PIVOT.x + rx * cs - ry * sn;
-        ly = GRIP_PIVOT.y + rx * sn + ry * cs;
+        ly = pivotY + rx * sn + ry * cs;
       }
       const target = this.broom.toWorld(lx, ly);
 
-      // Clavado: el cuerpo cincha hacia donde el jugador quiere ir. El torso
-      // se estira, los brazos se tensan y las piernas se balancean — cuanto
-      // más forcejea, más evidente el esfuerzo.
-      const strain = this.broom.strain;
-      if (strain > 0.01 && this.broom.strainDir) {
-        const sd = this.broom.strainDir;
-        const reach = strain * 34 * (n === 'head' || n === 'chest' ? 1.25 : 1);
-        target.x += sd.x * reach;
-        target.y += sd.y * reach;
-        if (n === 'footF' || n === 'footB') {
-          const kick = Math.sin(this.broom.stuck.t * 17 + (n === 'footF' ? 0 : 2)) * strain * 22;
-          target.x += -sd.y * kick;
-          target.y += sd.x * kick;
-        }
+      // Golpazo contra una superficie: el cuerpo se sacude y queda blando un
+      // instante, como si se hubiera desplomado sobre la escoba. Antes acá
+      // estaba el forcejeo para desclavarse; se sacó junto con la clavada.
+      if (slamF > 0.01) {
+        const ph = this._slamPhase + (n === 'footF' || n === 'footB' ? 2.1 : 0);
+        target.x += Math.sin(ph * 9) * slamF * 16;
+        target.y += Math.cos(ph * 11 + 1.3) * slamF * 13;
       }
 
       // Resorte hacia la postura deseada, con tope: impactos grandes lo superan
@@ -386,13 +466,17 @@ export class Rider {
       let cap = base.cap * (1 + 0.5 * this.tuck);
       if (this.phase === 'whip') cap *= 4;
       if (mag > cap) { ax = ax / mag * cap; ay = ay / mag * cap; }
-      ay += R.gravity;
+      // Sin gravedad: el jinete flota con la escoba. Solo el resorte de postura
+      // lo mantiene en forma, sin peso que lo tire al suelo.
 
       const vx = (p.x - p.px) * dragF;
       const vy = (p.y - p.py) * dragF;
       p.px = p.x; p.py = p.y;
       p.x += vx + ax * dt2;
       p.y += vy + ay * dt2;
+
+      // Guardar el objetivo para la correa de postura (después de constraints)
+      p.tx = target.x; p.ty = target.y;
     }
 
     // --- Constraints + manos fijas ---
@@ -429,6 +513,38 @@ export class Rider {
     const gv2 = this.broom.velAt(gripB.x, gripB.y);
     this.points.handB.x = gripB.x; this.points.handB.y = gripB.y;
     this.points.handB.px = gripB.x - gv2.x * dt; this.points.handB.py = gripB.y - gv2.y * dt;
+
+    // --- Correa de postura: la física deforma, pero hasta acá ---
+    // Cada punto queda atado a su objetivo de pose con un radio máximo. Sin
+    // esto, impactos y giros rápidos dejan el cuerpo en configuraciones
+    // imposibles (los constraints de hueso preservan largos, no topología).
+    //
+    // El largo de la correa responde a DOS cosas opuestas, y ahí está el truco:
+    //  · acelerar/frenar la AFLOJA  → el cuerpo puede irse lejos, se ve elástico
+    //  · girar rápido la APRIETA    → el cuerpo se mantiene armado en el giro
+    // Antes había un solo multiplicador para todo, así que no se podía pedir
+    // "más exagerado al acelerar" sin volver a romper el personaje al girar.
+    // Con dos términos independientes cada gesto tiene su propio margen.
+    let leashMul = this.phase === 'whip' ? 1.7 : 1;
+    if (this.phase === 'idle') {
+      const accelAbs = Math.min(Math.abs(this.broom.accelLong ?? 0), 1);
+      leashMul *= 1 + accelAbs * (R.accelLeash - 1);
+      const spinAmt = clamp(Math.abs(this.broom.angVel) / R.spinRef, 0, 1);
+      leashMul *= lerp(1, R.spinLeash, spinAmt);
+    }
+    for (const n of this.names) {
+      const p = this.points[n];
+      if (p.tx == null) continue;
+      const max = (LEASH[n] ?? 40) * S * leashMul;
+      const dx = p.x - p.tx, dy = p.y - p.ty;
+      const d = Math.hypot(dx, dy);
+      if (d > max) {
+        const cx = p.tx + dx / d * max, cy = p.ty + dy / d * max;
+        // Corregir posición sin inyectar velocidad (px/py acompañan el ajuste)
+        p.px += cx - p.x; p.py += cy - p.y;
+        p.x = cx; p.y = cy;
+      }
+    }
 
     // Influencia secundaria del cuerpo sobre la escoba (control > caos).
     // Durante el latigazo el tope sube: lanzar el cuerpo empuja la escoba
@@ -474,9 +590,9 @@ export class Rider {
       const vx = (p.x - p.px) * 0.96;
       const vy = (p.y - p.py) * 0.96;
       p.px = p.x; p.py = p.y;
-      // gravedad + flameo
-      p.x += vx + (Math.sin(t * 7 + i) * 60) * dt2;
-      p.y += vy + (300 + Math.cos(t * 9 + i * 1.7) * 80) * dt2;
+      // flameo mágico: la capa ondea sin gravedad, como si flotara en magia
+      p.x += vx + (Math.sin(t * 7 + i) * 55 + Math.cos(t * 4.3 + i * 1.5) * 30) * dt2;
+      p.y += vy + (Math.cos(t * 9 + i * 1.7) * 45 + Math.sin(t * 5.1 + i) * 20) * dt2;
     }
     // anclar al pecho y resolver cadena
     this.cape[0].x = c.x; this.cape[0].y = c.y;
@@ -521,5 +637,12 @@ export class Rider {
     this.shotFire = false;
     this.broom.aimOverride = null;
     this.footTrail.length = 0;
+    // Si el gol entra a mitad de un giro de 360°, el lado del cuerpo quedaba
+    // congelado en el valor de ese giro y el mago revivía dado vuelta. Se
+    // recalcula del ángulo real del saque en vez de heredar el del punto
+    // anterior.
+    this.freezeFlip = null;
+    this.flipSide = Math.cos(this.broom.angle) >= 0 ? 1 : -1;
+    this.shotMul = 1;
   }
 }

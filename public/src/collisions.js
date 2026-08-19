@@ -161,8 +161,9 @@ function applyRam(attacker, victim, nx, ny, cx, cy, ally, fx) {
   // Desestabilizar: el giro le arruina el apuntado un instante. Es la parte
   // que convierte el empujón en una jugada y no en un simple desplazamiento.
   victim.broom.angVel += (Math.random() * 2 - 1) * R.spin * (force / R.maxPush);
-  // Un empujón fuerte también despega al que estaba clavado en una pared
-  if (victim.broom.stuck && force > R.freeStuck) victim.broom.stuck = null;
+  // Un empujón fuerte saca del aturdimiento a quien acaba de golpearse contra
+  // una pared: recibir un choque encima de otro no debería dejarlo indefenso.
+  if (victim.broom.slamT > 0 && force > R.breakSlam) victim.broom.slamT = 0;
   // El cuerpo sale despedido por su cuenta: el ragdoll hace el resto
   for (const { p } of victim.rider.hitPoints()) {
     p.px -= nx * force * R.bodyKnock;

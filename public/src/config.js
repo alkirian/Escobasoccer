@@ -11,7 +11,7 @@ const MAP = 1.28;
 // devuelve a un tamaño legible sin tocar los límites del campo. Multiplica la
 // escoba, las posturas del ragdoll, los radios de colisión y los grosores de
 // dibujo por igual, así el personaje crece entero y no deformado.
-const CHAR = 1.4;
+const CHAR = 1.7;
 
 export const CFG = {
   charScale: CHAR,
@@ -29,14 +29,18 @@ export const CFG = {
     T: -730 * MAP,       // techo invisible, al ras del cielo
     B: 405 * MAP,        // superficie del campo (césped), delante del parapeto
     portalY: 76 * MAP,   // centro de los arcos, medido sobre la imagen
-    portalR: 185 * MAP,  // media altura del hueco del arco
+    // Media altura del hueco del arco. Mueve la zona de gol Y el dibujo del
+    // portal juntos, así lo que se ve es siempre lo que cuenta. Bajado de 115
+    // para que meter gol pida más puntería: con el radio de la pelota
+    // descontado, la banda efectiva pasa de ~135 a ~121 unidades.
+    portalR: 104 * MAP,
     suction: 620,        // atracción mágica cerca de la boca del arco
   },
 
   // Escoba — cuerpo rígido dominante
   broom: {
     halfLen: 55 * CHAR,
-    gravity: 130,        // la escoba flota mágicamente: desciende suave sin gas
+    gravity: 0,          // sin gravedad: la escoba levita con ondulaciones mágicas
     thrust: 1150,        // aceleración con LMB
     dragLin: 0.6,        // resistencia del aire lineal
     dragQuad: 0.0009,    // resistencia cuadrática (limita vel. máxima ~830)
@@ -88,16 +92,17 @@ export const CFG = {
     // el jugador VE adentro efectivamente conecte. Prometer de menos.
     shownRange: 0.85,
     aimAssist: 0.85,      // 0 = física pura, 1 = va exacto al cursor
-    aimedPower: 1250,     // velocidad base de un golpe dirigido bien dado
+    aimedPower: 1450,     // velocidad base de un golpe dirigido bien dado
     aimedMinPower: 620,   // piso, para que un roce dirigido igual sirva
 
     // --- Potencia del golpe ---
     // Se multiplica por cuánto se mantuvo Space y por cuánta energía de orbes
-    // hay en la reserva. Un toque sin energía sale a ~1250; un cañonazo a
-    // fondo con el frasco lleno pasa de 3000.
+    // hay en la reserva. Exagerado a propósito: un golpe A FONDO con Space
+    // tiene que sentirse como un cañonazo que cruza la cancha, no un pase
+    // fuerte. Medido: carga completa sin energía ronda 3400-3800 u/s.
     chargeFull: 0.8,      // mantener Space hasta acá da la carga máxima
-    chargeBonus: 0.85,    // +85% de potencia a carga completa
-    energyBonus: 0.7,     // +70% adicional con la reserva llena
+    chargeBonus: 1.7,     // +170% de potencia a carga completa
+    energyBonus: 0.9,     // +90% adicional con la reserva llena
     energyCost: 30,       // lo que gasta un golpe (0 = que no gaste nada)
 
     // --- Tiro de fuego ---
@@ -106,12 +111,13 @@ export const CFG = {
     // propósito: el jugador tiene que poder mirar el frasco y saber si le
     // toca el cañonazo, y guardar energía deja de ser algo abstracto.
     fireThreshold: 0.5,   // fracción del frasco necesaria
-    fireBonus: 0.7,       // +70% adicional cuando sale inflamado
+    fireBonus: 1.3,       // +130% adicional cuando sale inflamado
     // Piso garantizado del tiro de fuego. La velocidad normal depende de con
     // cuánta velocidad llegó el pie al contacto, así que un golpe inflamado
     // mal conectado podía salir flojo — y gastar media reserva para eso se
-    // siente a robo. Con el piso, prender la pelota SIEMPRE es un cañonazo.
-    fireMinPower: 2000,
+    // siente a robo. Con el piso, prender la pelota SIEMPRE es un misil que
+    // cruza la cancha entera.
+    fireMinPower: 3400,
     spinLead: 2.4,        // rad de arco antes del contacto: cuanto más, más vuelta
     // Estocada: al soltar, el personaje se lanza hacia la pelota lo justo para
     // llegar dentro de la ventana del latigazo. Sin esto el brazo de palanca
@@ -130,13 +136,25 @@ export const CFG = {
 
   // Jinete — active ragdoll (verlet)
   rider: {
-    gravity: 330,
+    gravity: 0,   // sin gravedad: el jinete flota mágicamente con la escoba
     drag: 1.15,          // drag del aire sobre puntos
     iterations: 6,       // iteraciones de constraints por paso
     reactK: 150,         // fuerza de reacción de las manos sobre la escoba
     reactMax: 1500,      // tope de esa fuerza (cuerpo = influencia secundaria)
     tuckSpeed: 7,        // velocidad de transición a recogido (1/s)
     armStretch: 1.3,     // los brazos pueden estirarse hasta 30% (nunca soltarse)
+
+    // --- Inercia del cuerpo: exagerada al acelerar/frenar, contenida al girar ---
+    // Son dos diales opuestos a propósito. Acelerar y frenar SÍ tienen que
+    // deformar fuerte (es lo que hace que la velocidad se sienta), pero girar
+    // NO: en un giro rápido el cuerpo cruza los 360° y aflojar ahí es lo que
+    // dejaba una pierna arriba de la cabeza. Por eso la correa se afloja con
+    // la aceleración y se APRIETA con la velocidad angular.
+    dragPose: 0.85,      // cuánto llega a estirarse hacia atrás acelerando (0..1)
+    lurchPose: 0.70,     // cuánto se comprime hacia adelante frenando (0..1)
+    accelLeash: 1.15,    // aflojado extra de la correa a full aceleración
+    spinLeash: 0.72,     // apretado de la correa girando rápido (< 1 = más rígido)
+    spinRef: 9,          // rad/s a partir de los cuales el giro se considera "rápido"
   },
 
   // Pelota
@@ -144,15 +162,17 @@ export const CFG = {
     r: 34,               // más grande: mejor lectura y contacto más generoso
     gravity: 380,
     dragLin: 0.2,        // más resistencia → más lenta, ventana de control mayor
-    dragQuad: 0.0006,
+    // El drag cuadrático es el verdadero techo de un cañonazo: a más
+    // velocidad, más frena. Antes (0.0006) un tiro a 3600 se comía media
+    // cancha en el primer instante y llegaba muerto al otro lado — subir
+    // solo la velocidad de salida no alcanzaba. Bajado para que un golpe
+    // cargado A FONDO cruce la cancha entera (~3169) todavía rápido.
+    dragQuad: 0.00022,
     bounce: 0.68,        // restitución contra muros
     // Techo alto a propósito: el juego normal rara vez pasa de ~1200, así que
     // esto no acelera el partido — es el margen que necesita el golpe cargado
     // para poder ser realmente más fuerte en vez de recortarse contra el tope.
-    // El drag cuadrático frena el cañonazo enseguida, así que un tiro a 3600
-    // recorre ~1500 (media cancha) a toda velocidad y después se normaliza:
-    // llega al arco desde el medio sin volverse imposible de defender.
-    maxSpeed: 3600,
+    maxSpeed: 6200,
     // Cuánto dura prendida la pelota tras un tiro de fuego
     fireTime: 2.4,
     bodyKick: 0.85,      // transferencia de golpe del cuerpo (a máxima velocidad de contacto)
@@ -175,12 +195,18 @@ export const CFG = {
   // reacomodan solas si cambia el mapa. Editar `layout` para rebalancear.
   orbs: {
     r: 17,               // radio visual
-    pickupR: 46,         // radio de recolección (generoso: no debe frustrar)
+    pickupR: 85,         // radio de recolección: generoso, roza y ya es tuyo
     energy: 22,          // energía que da cada orbe
     respawn: 7,          // segundos hasta reaparecer
     fadeIn: 1.1,         // animación de regreso, para poder anticiparlo
     bobAmp: 9,           // amplitud del flotar
     bobSpeed: 1.6,
+    // Al entrar en pickupR el orbe no desaparece: queda "enganchado" y
+    // vuela hacia el jugador hasta alcanzarlo de verdad — recién ahí se
+    // consume y suma la energía. catchSpeed es un piso; si el jugador va
+    // más rápido, lo persigue más rápido todavía para no quedarse atrás.
+    catchSpeed: 1300,
+    catchDist: 40,        // qué tan cerca tiene que llegar para consumirse
     // Distribución: los del centro están sobre la ruta directa a la pelota,
     // los de los costados obligan a desviarse. Ahí está la decisión.
     layout: [
@@ -218,22 +244,32 @@ export const CFG = {
     warn: 1.6,           // aviso antes de materializarse
     life: 20,            // si nadie lo alcanza, se desvanece y vuelve después
 
-    speed: 1080,         // tope cuando lo están persiguiendo
-    calmSpeed: 0.42,     // fracción del tope cuando nadie lo acosa (pasea)
-    accel: 2400,
-    fleeRange: 640,      // a qué distancia se da cuenta y arranca
-    panicGain: 1.9,      // satura el pánico a media distancia, no encima
-    panicDecay: 0.5,     // se calma despacio (evita turnarse dos perseguidores)
-    // Cansancio: le da arco a la persecución. Gastás el impulso para pegarte
-    // (la reserva llena da ~2 s) y después lo cansás hasta que corre menos
-    // que vos. Insistir paga; si lo soltás, se recupera.
-    stamDrain: 0.26,     // ~4 s de esprint hasta quedar agotado
-    stamRecover: 0.34,   // ~3 s tranquilo para recuperarse
-    tiredSpeed: 0.58,    // fracción del tope estando agotado (< escoba normal)
-    tiredDodge: 0.25,    // agotado casi no zigzaguea: ahí la persecución cierra
-    dodge: 0.75,         // componente lateral: escapa en diagonal, no recto
-    wallMargin: 210,     // cuánto antes de la pared empieza a doblar
-    wallWeight: 2.2,     // sin esto lo acorralan contra un borde al toque
+    // Escapa mejor que una escoba con impulso a fondo (~1663): de frente NO se
+    // alcanza, hay que emboscarlo, acorralarlo contra un borde o cansarlo. Que
+    // sea muy difícil es el punto — reparte energía ilimitada.
+    speed: 1560,         // tope cuando lo están persiguiendo
+    calmSpeed: 0.34,     // fracción del tope cuando nadie lo acosa (pasea)
+    accel: 4200,         // arranca casi instantáneo: no se lo sorprende quieto
+    fleeRange: 1000,     // se da cuenta desde MUY lejos y ya sale disparado
+    panicGain: 2.6,      // llega a pánico máximo apenas te ve venir
+    panicDecay: 0.28,    // tarda mucho en calmarse: no da respiros
+    // Cansancio: sigue siendo la vía para atraparlo, pero mucho más exigente.
+    // Aguanta ~13 s de esprint y se recupera lento, así que hay que insistir
+    // de verdad — y mientras tanto el partido sigue sin vos.
+    stamDrain: 0.075,    // ~13 s de esprint hasta quedar agotado
+    stamRecover: 0.16,   // ~6 s tranquilo para recuperarse
+    tiredSpeed: 0.72,    // agotado sigue siendo rápido (antes 0.58)
+    tiredDodge: 0.42,    // agotado esquiva bastante más que antes
+    // El zigzag es lo que más lo hace inalcanzable: una escoba tiene mucha
+    // inercia para girar, así que un orbe que corta en diagonal no se agarra
+    // aunque vayas más rápido. Subido fuerte — es el corazón de la dificultad.
+    dodge: 1.25,         // componente lateral: escapa en diagonal cerrada
+    // Además esquiva con un ritmo propio: sin esto el zigzag es una constante
+    // y el jugador aprende a "cortarle" el ángulo siempre igual.
+    dodgeWave: 2.6,      // velocidad del vaivén lateral (rad/s)
+    dodgeWaveAmt: 0.75,  // cuánto del zigzag es oscilante vs fijo
+    wallMargin: 320,     // dobla mucho antes: acorralarlo es difícil
+    wallWeight: 3.4,     // y se despega del borde con más fuerza
     wander: 0.35,        // deambular cuando está tranquilo
 
     buff: 9,             // segundos de energía ilimitada al atraparlo
@@ -253,20 +289,27 @@ export const CFG = {
     recoil: 0.3,        // lo que le cuesta al que embiste (riesgo/recompensa)
     allyMul: 0.22,      // a un compañero apenas se lo mueve
     cooldown: 0.22,     // no se puede empujar en ráfaga
-    freeStuck: 520,     // un empujón fuerte despega al que estaba clavado
+    // Un empujón de al menos esta fuerza saca del aturdimiento a quien acaba
+    // de golpearse contra una pared (antes: lo despegaba de la clavada, que
+    // ya no existe). Recibir un choque encima de otro no debería dejar a
+    // nadie indefenso.
+    breakSlam: 520,
   },
 
-  // Escoba clavada: solo en choques frontales fuertes
+  // Golpazo contra una pared o el suelo. Antes esto CLAVABA la escoba y había
+  // que forcejear con el mouse para salir; se sacó porque quedarse pegado
+  // cortaba el ritmo del partido. Ahora el choque fuerte se nota —rebota seco,
+  // queda girando, el cuerpo se desarma— pero se recupera solo enseguida.
   stuck: {
     // Medido: el drag come velocidad en la aproximación, así que un choque
-    // a fondo llega a la pared con ~600. Por debajo de esto no se clava.
+    // a fondo llega a la pared con ~600. Por debajo de esto es un roce normal.
     minSpeed: 520,
     minAlign: 0.82,      // cuán de frente tiene que ser (1 = perpendicular)
-    maxTime: 2.0,        // tope duro: nunca es un castigo largo
-    escapeWork: 1.0,     // esfuerzo acumulado necesario para salir antes
-    escapeGain: 1.55,    // cuánto suma forcejear (mouse + acelerador)
-    popSpeed: 640,       // envión al desprenderse
-    cooldown: 1.2,       // no se puede volver a clavar de inmediato
+    slamTime: 0.42,      // cuánto dura el descontrol (corto: es un tropiezo)
+    slamControl: 0.12,   // fracción de control que le queda mientras dura
+    slamSpin: 9,         // giro descontrolado que le imprime el golpe
+    slamPush: 240,       // envión de rebote hacia afuera de la superficie
+    cooldown: 0.5,       // no se puede encadenar dos golpazos seguidos
   },
 
   // Presentación de inicio y explosión de gol
@@ -315,6 +358,10 @@ export const CFG = {
     quickCountdown: 1.6, // reset tras gol
     goalPause: 2.6,      // celebración
     goalSlowmo: 0.32,
+    // Sin dash en el arranque de cada punto. Se cuenta desde el "¡YA!", no
+    // desde el countdown, así son 5 s de juego real: los dos salen a buscar la
+    // pelota volando y nadie la roba de entrada con un dash instantáneo.
+    dashLockout: 5.0,
   },
 
   // Colores de equipos y mundo

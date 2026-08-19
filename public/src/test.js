@@ -141,7 +141,7 @@ function step(dt) {
     pl.addEnergy(CFG.orbs.energy);
     particles.orbAbsorb(orb.fx, oy, pl.broom.pos, CFG.colors.p1);
     sound.orb();
-  });
+  }, dt);
 
   runner.update(dt, [player], true, {
     onAppear: (x, y) => { particles.runnerBurst(x, y); sound.runnerAppear(); },

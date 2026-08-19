@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Escoba Voladora — Partido</title>
+  <meta name="description" content="Fútbol de magos en escobas voladoras: física alocada, golpes cargados y explosiones de gol.">
+  <meta name="theme-color" content="#0a0c18">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Pantalla de carga: tapa el canvas negro mientras baja el mapa (el
+       asset pesado). main.js la saca cuando el mapa está listo. */
+    #loading {
+      position: fixed; inset: 0; z-index: 40;
+      background: radial-gradient(ellipse at 50% 30%, #1a2145 0%, #0a0c18 65%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; color: #e8ecff;
+      font: 600 26px Georgia, serif; letter-spacing: .04em;
+      transition: opacity .45s;
+    }
+    #loading.off { opacity: 0; pointer-events: none; }
+    #loading .broom { font-size: 54px; animation: fly 1.6s ease-in-out infinite; }
+    #loading .bar {
+      width: 180px; height: 4px; border-radius: 2px; overflow: hidden;
+      background: rgba(255,255,255,.12);
+    }
+    #loading .bar i {
+      display: block; height: 100%; width: 40%;
+      background: #ffd54a; border-radius: 2px;
+      animation: slide 1.1s ease-in-out infinite;
+    }
+    @keyframes fly {
+      0%, 100% { transform: translateY(0) rotate(-8deg); }
+      50% { transform: translateY(-12px) rotate(6deg); }
+    }
+    @keyframes slide {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(420%); }
+    }
+  </style>
+  <script>
+    // roundRect llegó a Safari 16 / Firefox 112: este relleno cubre versiones
+    // anteriores. Corre antes que cualquier módulo del juego.
+    if (!CanvasRenderingContext2D.prototype.roundRect) {
+      CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+        r = Math.min(Math.abs(Array.isArray(r) ? r[0] : (r || 0)), Math.abs(w) / 2, Math.abs(h) / 2);
+        this.moveTo(x + r, y);
+        this.arcTo(x + w, y, x + w, y + h, r);
+        this.arcTo(x + w, y + h, x, y + h, r);
+        this.arcTo(x, y + h, x, y, r);
+        this.arcTo(x, y, x + w, y, r);
+        this.closePath();
+        return this;
+      };
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="loading">
+    <div class="broom">🧹</div>
+    <div>Escoba Voladora</div>
+    <div class="bar"><i></i></div>
+  </div>
+  <div id="rotate-hint">
+    <div class="icon">🧹↻</div>
+    <p>Girá el teléfono — la cancha es horizontal</p>
+  </div>
+  <script type="module" src="src/main.js"></script>
+  <script>
+    // PWA: con el service worker el juego queda jugable offline y se puede
+    // "Agregar a pantalla de inicio". Red primero: nunca sirve archivos viejos
+    // teniendo conexion.
+    if ('serviceWorker' in navigator) {
+      addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    }
+  </script>
+</body>
+</html>

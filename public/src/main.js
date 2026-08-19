@@ -1,9 +1,9 @@
 // Escoba Voladora — MVP
 // Deporte 2.5D: magos agarrados a escobas físicas pelean por meter
-// una pelota en el portal rival. Control = mouse (apuntar) + LMB (gas)
-// + RMB (freno) + Space (recogerse).
+// una pelota en el portal rival.
+// Controles: Mouse=apuntar/mover · LMB=giro+golpe · Space=dash · Shift=boost · RMB=flotar
 import { CFG, FIXED_DT } from './config.js';
-import { clamp } from './utils.js';
+import { clamp, wrapAngle, closestOnSegment } from './utils.js';
 import { Input } from './input.js';
 import { TouchControls } from './touch.js';
 import { Player } from './player.js';
@@ -15,8 +15,37 @@ import { Sound } from './sound.js';
 import { Match } from './match.js';
 import { Renderer } from './render.js';
 import { OrbField, RunnerOrb } from './orbs.js';
+import { ReplayRecorder, ReplayPlayer } from './replay.js';
+import { Coach } from './coach.js';
+import { recordMatch, recordRunnerCatch, isFirstEver, loadStats } from './stats.js';
+import { completeChallenge, selectedPalettes } from './challenges.js';
 import { collideBallArena, collideBroomArena, applyPortalSuction } from './arena.js';
 import { interactPlayerBall, interactPlayers, clampRiderArena } from './collisions.js';
+import { emitTrail } from './characters.js';
+
+// ── Tuning dash + giro ────────────────────────────────────────────────────
+const DASH = {
+  power:      1600,
+  duration:   0.07,
+  maxCharges: 2,
+  recharge:   4.0,
+};
+
+const SPIN = {
+  dur:       0.40,
+  cooldown:  0.30,
+  range:     300,
+  homingAcc: 2800,
+  lunge:     750,
+  lungeTime: 0.16,
+  reachPad:  70,
+  catchR:    28,
+  aimAssist: 0.82,
+  holdAim:   0.13,
+  chargeTime: 0.7,
+  minPower:   900,
+  maxPower:   3200,
+};
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -26,6 +55,29 @@ const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
 const BOTS = params.has('bots');   // IA vs IA (para observar/testear)
 const FAST = params.has('fast');   // partido de 30s
+// Práctica: cancha libre, sin reloj ni marcador. Llega desde el menú.
+const PRACTICE = params.get('mode') === 'practica';
+
+// ── Opciones que llegan del menú ──────────────────────────────────────────
+// Antes el menú las guardaba y las mandaba por URL, pero acá nadie las leía:
+// cambiar la duración o silenciar el sonido no hacía nada.
+const MUTE  = params.has('mute');
+const NOORBS = params.has('noorbs');
+// ── Primer partido de la vida: corto y en fácil ───────────────────────────
+// En la web la primera sesión dura 3-5 minutos: si el primer partido son
+// 120 s contra un bot normal y termina 0-2, ese jugador no vuelve. La
+// primera experiencia tiene que ser GANAR — después elige lo que quiera.
+// Pisa incluso lo que venga del menú: un jugador nuevo todavía no formó
+// preferencias, solo apretó "Jugar" con los valores por defecto.
+const FIRST_EVER = !FAST && !BOTS && !PRACTICE && isFirstEver();
+
+// Duración: se acepta solo lo que manda el menú (60/120/180). `fast` sigue
+// pisando todo para las pruebas rápidas.
+const DURATION = FAST ? 30
+  : FIRST_EVER ? 90
+  : (Number(params.get('duration')) || CFG.match.duration);
+// Dificultad de los bots: 'facil' | 'normal' | 'dificil'
+const DIFFICULTY = FIRST_EVER ? 'facil' : (params.get('difficulty') || 'normal');
 
 // --- Canvas con devicePixelRatio ---
 function resize() {
@@ -66,27 +118,148 @@ function makeTeam(team, side) {
 }
 
 const teamA = makeTeam('p1', -1);   // izquierda
-const teamB = makeTeam('p2', +1);   // derecha
+// En práctica no hay rivales: la cancha queda libre para probar sin que nadie
+// te dispute la pelota. El equipo rival simplemente no se crea.
+const teamB = PRACTICE ? [] : makeTeam('p2', +1);   // derecha
 const players = [...teamA, ...teamB];
 const playerA = teamA[0];           // el humano
-const playerB = teamB[0];           // rival principal (compatibilidad)
+const playerB = teamB[0] ?? null;   // rival principal (null en práctica)
+
+// ── Personaje elegido ──────────────────────────────────────────────────────
+// El humano trae su héroe de la galería (/personajes.html), de ?char= o del
+// guardado. Los rivales varían al azar para que el partido no sea un espejo
+// (?charbot= los fuerza, útil para probar).
+const CHAR_KEY = 'escoba.character.v1';
+const CHAR_POOL = ['mago', 'valka', 'mordrak', 'izar', 'zefir'];
+{
+  let pick = params.get('char');
+  if (!pick) { try { pick = localStorage.getItem(CHAR_KEY); } catch { /* sin storage */ } }
+  playerA.characterId = CHAR_POOL.includes(pick) ? pick : 'mago';
+  // Paleta alternativa elegida en la galería (recompensa de desafíos)
+  playerA.paletteId = selectedPalettes()[playerA.characterId] ?? null;
+  const forced = params.get('charbot');
+  // Los bots nunca copian al humano: un partido espejo confunde, sobre todo
+  // con Mordrak, cuyos dos bandos son casi iguales salvo por el brillo.
+  const botPool = CHAR_POOL.filter((c) => c !== playerA.characterId);
+  for (const pl of players) {
+    if (pl === playerA) continue;
+    pl.characterId = CHAR_POOL.includes(forced)
+      ? forced
+      : botPool[(Math.random() * botPool.length) | 0];
+  }
+}
 const ball = new Ball(0, SPAWN_Y - 120);
 const camera = new Camera(canvas);
 const particles = new Particles();
 const sound = new Sound();
+sound.muted = MUTE;              // opción "Sonido" del menú
 input.firstGesture = () => sound.init();
 touch.onFirstTouch = () => sound.init();
 
-const orbs = new OrbField();
-const runner = new RunnerOrb();
+// Con los orbes desactivados no se crean los campos: no aparecen, no se
+// recogen y no hay energía de boost que juntar.
+const orbs = NOORBS ? null : new OrbField();
+const runner = NOORBS ? null : new RunnerOrb();
+
+// Estado del dash del jugador humano (2 cargas independientes)
+const dashState = {
+  charges:   DASH.maxCharges,
+  rechargeT: 0,
+  active:    false,
+  t:         0,
+  // El tuning viaja con el estado para que el HUD lo lea de acá en vez de
+  // repetir los números a mano. Antes render.js tenía su propia copia
+  // (DASH_RECHARGE = 4.0, DASH_MAX = 2) y cambiar el tuning dejaba el HUD
+  // mostrando un contador de recarga falso, sin ningún error que lo delatara.
+  maxCharges: DASH.maxCharges,
+  recharge:   DASH.recharge,
+};
+
+// Estado del giro de escoba (LMB)
+const spin = {
+  active: false,
+  t:      0,
+  from:   0,
+  dir:    1,
+  cd:     0,
+  aimed:  false,
+  aimX:   0, aimY: 0,
+  hit:    false,
+  holdT:  0,
+  chargeF: 0,
+};
+
+// Carga en curso mientras se mantiene LMB
+const charge = { active: false, t: 0 };
+
+// Flag puntual para dash (se setea antes de endFrame())
+let _dashPending = false;
+
+// Temporizador anti-esquina de la pelota (ver el empujón en step())
+let _cornerT = 0;
+
+// ── Repetición del gol ────────────────────────────────────────────────────
+// Solo en partida de a uno: en modo espectador (?bots) no hay a quién
+// mostrarle la jugada, y en práctica no hay goles que celebrar.
+const REPLAY_ON = !BOTS && !PRACTICE;
+const replayRec = new ReplayRecorder();
+const replay = new ReplayPlayer();
+replayRec.enabled = REPLAY_ON;
+// Clip capturado en el instante del gol, esperando a que termine el festejo
+// para reproducirse.
+let _pendingClip = null;
+
+// ── Coach ─────────────────────────────────────────────────────────────────
+// Los controles se enseñan JUGANDO: lecciones contextuales que aparecen al
+// lado de lo que explican, en el momento en que ese control sirve (ver
+// coach.js). La pantalla estática de controles ya no se abre sola — quedó
+// como referencia en el menú de pausa. No hay puerta: el partido arranca
+// directo y el coach acompaña.
+const coach = new Coach();
 
 const world = {
   playerA, playerB, players, teamA, teamB, teamSize: TEAM_SIZE,
   ball, camera, particles, sound, input, touch, orbs, runner,
   debug: DEBUG, botsMode: BOTS, paused: false,
+  practice: PRACTICE,        // cancha libre: el HUD cambia a modo práctica
   match: null,
+  dashState, spin, charge,   // expuestos para el HUD del renderer
+  // Desafíos completados esperando su aviso en pantalla (los saca el render)
+  challengeQueue: [],
+  // Overlay de pausa (Continuar/Menú/Salir). El renderer llena `rects` cada
+  // frame con las zonas que dibujó; acá abajo se usan para el hit-test del
+  // mouse — mismo patrón que menu.js pero compartiendo el world en vez de
+  // tener su propia clase, porque esto vive adentro del partido.
+  pauseMenu: { hot: null, rects: [], closeBlockedT: 0 },
+  // Pantalla "cómo se juega": solo como referencia desde el menú de pausa.
+  // El aprendizaje real lo lleva el coach, jugando.
+  controlsScreen: { open: false, hot: null, rects: [] },
+  coach,                     // lecciones contextuales (el renderer las dibuja)
+  replay,                    // reproductor: el renderer lo consulta para dibujar
+  // Lo llama Match._resetPositions(). El estado de dash/giro vive acá y no en
+  // Player, así que sin este hook sobrevivía al saque: un gol entrado a mitad
+  // de un giro dejaba `spin.active` en true y el mago arrancaba el punto
+  // girando solo, fuera de posición.
+  onReset() {
+    _dashPending = false;
+    // El buffer arrastra el punto anterior: si no se limpia, la repetición
+    // del próximo gol empezaría mostrando el saque viejo.
+    replayRec.clear();
+    dashState.charges = DASH.maxCharges;
+    dashState.rechargeT = 0;
+    dashState.active = false;
+    dashState.t = 0;
+    spin.active = false;
+    spin.t = 0; spin.cd = 0; spin.holdT = 0; spin.chargeF = 0;
+    spin.aimed = false; spin.hit = false;
+    charge.active = false;
+    charge.t = 0;
+  },
 };
-const match = new Match(world, { duration: FAST ? 30 : CFG.match.duration });
+const match = new Match(world, {
+  duration: DURATION,      // opción "Duración del partido" del menú
+  practice: PRACTICE,
+});
 world.match = match;
 
 // Un bot por jugador, menos el humano (salvo en modo ?bots, donde juegan todos).
@@ -95,10 +268,74 @@ world.match = match;
 const bots = players
   .filter((pl) => BOTS || pl !== playerA)
   .map((pl) => {
-    const bot = new Bot(pl, pl.side);
+    const bot = new Bot(pl, pl.side, DIFFICULTY);
     bot.role = TEAM_SIZE > 1 && pl.index === 1 ? 'support' : 'striker';
     return bot;
   });
+
+// ── Giro de escoba (LMB) ──────────────────────────────────────────────────
+function startSpin(chargeF = 0) {
+  const b = playerA.broom;
+  spin.active  = true;
+  spin.t       = 0;
+  spin.from    = b.angle;
+  spin.hit     = false;
+  spin.holdT   = 0;
+  spin.cd      = SPIN.cooldown;
+  spin.chargeF = clamp(chargeF, 0, 1);
+
+  // Congelar el lado del cuerpo (izq/der) durante todo el giro: si no, el
+  // ragdoll cruzaría 90°/270° varias veces por segundo mientras la escoba
+  // da la vuelta entera, y el cuerpo quedaría en poses imposibles.
+  playerA.rider.freezeFlip = Math.cos(b.angle) >= 0 ? 1 : -1;
+
+  const dx = ball.pos.x - b.pos.x, dy = ball.pos.y - b.pos.y;
+  const dist = Math.hypot(dx, dy);
+  spin.aimed = dist <= SPIN.range;
+
+  if (spin.aimed) {
+    const aimNow = camera.screenToWorld(input.cursor.x, input.cursor.y);
+    let hx = aimNow.x - ball.pos.x, hy = aimNow.y - ball.pos.y;
+    const hl = Math.hypot(hx, hy) || 1;
+    spin.aimX = hx / hl;
+    spin.aimY = hy / hl;
+
+    // Elegir sentido del giro: la tangente que apunte hacia el cursor
+    const rl = dist || 1;
+    const rx = dx / rl, ry = dy / rl;
+    const dotCCW = (-ry) * spin.aimX + rx * spin.aimY;
+    spin.dir = dotCCW >= 0 ? 1 : -1;
+
+    // Envión para alcanzar la pelota
+    const ux = dx / rl, uy = dy / rl;
+    const need    = (dist - SPIN.reachPad) / SPIN.lungeTime;
+    const closing = b.vel.x * ux + b.vel.y * uy;
+    if (need > closing) {
+      const add = Math.min(need - closing, SPIN.lunge);
+      b.vel.x += ux * add;
+      b.vel.y += uy * add;
+    }
+  } else {
+    spin.dir = 1;
+  }
+  sound.pop();
+}
+
+function applySpinHit() {
+  const cur = Math.hypot(ball.vel.x, ball.vel.y);
+  let ux = spin.aimX, uy = spin.aimY;
+  if (cur > 1) {
+    ux = ball.vel.x / cur + (spin.aimX - ball.vel.x / cur) * SPIN.aimAssist;
+    uy = ball.vel.y / cur + (spin.aimY - ball.vel.y / cur) * SPIN.aimAssist;
+    const ul = Math.hypot(ux, uy) || 1;
+    ux /= ul; uy /= ul;
+  }
+  const power = SPIN.minPower + (SPIN.maxPower - SPIN.minPower) * spin.chargeF;
+  const speed = Math.min(power, CFG.ball.maxSpeed);
+  ball.vel.x = ux * speed;
+  ball.vel.y = uy * speed;
+  spin.hit = true;
+}
 
 // FX hooks para colisiones
 const fx = {
@@ -118,33 +355,112 @@ let debugOn = DEBUG;
 function step(dt) {
   const frozen = match.playersFrozen();
 
-  // Control del jugador humano (en modo ?bots lo maneja su propio bot)
-  if (BOTS) {
-    // todos los jugadores los mueven los bots, más abajo
-  } else if (touch.active) {
-    // Joystick = dirección relativa, no un punto fijo: se recalcula cada
-    // paso desde la posición actual de la escoba, igual que el mouse
-    // "sigue" apuntando aunque el jugador se mueva.
-    const dir = touch.aimDir();
-    if (dir) {
-      playerA.control.aim.x = playerA.broom.pos.x + dir.x * 1000;
-      playerA.control.aim.y = playerA.broom.pos.y + dir.y * 1000;
+  // Control del jugador humano (en modo ?bots lo maneja su propio bot).
+  //
+  // Las dos formas de jugar —mouse/teclado y táctil— comparten TODO el
+  // sistema de habilidades: propulsión, boost, dash y giro. Solo cambia de
+  // dónde salen las entradas. Antes el táctil tenía su propia rama corta y se
+  // quedaba sin dash (nunca recargaba), sin giro (usaba el latigazo viejo) y
+  // sin boost: eran dos juegos distintos según el dispositivo. Unificarlo acá
+  // es lo que impide que vuelvan a divergir.
+  if (!BOTS) {
+    const b = playerA.broom;
+    const tch = touch.active;
+
+    // ── Entradas, normalizadas para que abajo dé igual el dispositivo ──────
+    let aimX, aimY;
+    if (tch) {
+      const dir = touch.aimDir();
+      aimX = dir ? b.pos.x + dir.x * 1000 : playerA.control.aim.x;
+      aimY = dir ? b.pos.y + dir.y * 1000 : playerA.control.aim.y;
+    } else {
+      const aim = camera.screenToWorld(input.cursor.x, input.cursor.y);
+      aimX = aim.x; aimY = aim.y;
     }
-    playerA.control.thrust = touch.thrust && !frozen;
-    playerA.control.brake = false;   // recorte v1: sin freno táctil
-    playerA.control.tuck = touch.hit;
-    playerA.updateEnergy(dt, false); // recorte v1: sin boost táctil
-    touch.tick(dt);
-  } else {
-    const aim = camera.screenToWorld(input.cursor.x, input.cursor.y);
-    playerA.control.aim.x = aim.x;
-    playerA.control.aim.y = aim.y;
-    playerA.control.thrust = input.lmb && !frozen;
-    playerA.control.brake = input.rmb && !frozen;
-    playerA.control.tuck = input.tuck;
-    playerA.updateEnergy(dt, input.boost && !frozen);
-    input.tick(dt);
+    // Táctil: el botón GAS acelera; sin él la escoba flota (equivale al RMB).
+    const hovering = (tch ? !touch.thrust : input.rmb) && !frozen;
+    // Táctil: el boost se activa manteniendo GAS a fondo mientras haya
+    // reserva. No hay tecla Shift en el teléfono y sumar un cuarto botón con
+    // dos pulgares era injugable.
+    const boosting = (tch ? (touch.thrust && touch.thrustTime > 0.55) : input.boost) && !frozen;
+    // Táctil: el botón GOLPE carga el giro igual que el LMB.
+    const hitDown  = (tch ? touch.hit : input.lmb) && !frozen;
+
+    playerA.control.aim.x         = aimX;
+    playerA.control.aim.y         = aimY;
+    playerA.control.thrust        = !hovering && !frozen;
+    playerA.control.noThrustForce = true;   // propulsión manual abajo
+    playerA.control.brake         = false;
+    playerA.control.tuck          = false;  // el spin es el golpe
+    playerA.control.boost         = false;
+
+    // Propulsión con multiplicadores
+    if (!hovering && !frozen) {
+      const mul = boosting ? 1.4 : 0.65;
+      const d = b.dir();
+      b.vel.x += d.x * CFG.broom.thrust * mul * dt;
+      b.vel.y += d.y * CFG.broom.thrust * mul * dt;
+    }
+    // Flotar quieto (RMB / soltar GAS)
+    if (hovering) {
+      b.vel.x *= Math.exp(-12 * dt);
+      b.vel.y *= Math.exp(-12 * dt);
+    }
+
+    playerA.updateEnergy(dt, boosting);
+
+    // ── Recarga del dash ──────────────────────────────────────────────────
+    if (dashState.charges < DASH.maxCharges) {
+      dashState.rechargeT += dt;
+      if (dashState.rechargeT >= DASH.recharge) {
+        dashState.charges++;
+        dashState.rechargeT = dashState.charges < DASH.maxCharges
+          ? dashState.rechargeT - DASH.recharge : 0;
+      }
+    }
+
+    // ── Dash (Space / doble toque en el joystick) ─────────────────────────
+    if (_dashPending && (dashState.charges === 0 || dashState.active)) _dashPending = false;
+    // Segunda barrera del bloqueo inicial: el registro ya filtra, pero el flag
+    // puede venir de un frame anterior al gol. Descartarlo en vez de dejarlo
+    // esperando — un dash guardado que sale solo es justo lo que no queremos.
+    if (_dashPending && !match.dashAllowed()) _dashPending = false;
+    if (_dashPending && dashState.charges > 0 && !dashState.active && !frozen) {
+      _dashPending = false;
+      dashState.charges--;
+      dashState.active = true;
+      dashState.t = 0;
+      const d = b.dir();
+      b.vel.x += d.x * DASH.power;
+      b.vel.y += d.y * DASH.power;
+      particles.impact(b.pos.x, b.pos.y, 320);
+      sound.pop();
+    }
+    if (dashState.active) {
+      dashState.t += dt;
+      if (dashState.t >= DASH.duration) dashState.active = false;
+    }
+
+    // ── Cooldown del giro ─────────────────────────────────────────────────
+    if (spin.cd > 0) spin.cd -= dt;
+
+    // ── Carga del giro: mantener carga, soltar dispara ────────────────────
+    if (hitDown && !charge.active && !spin.active && spin.cd <= 0) {
+      charge.active = true;
+      charge.t = 0;
+    }
+    if (charge.active) {
+      if (hitDown) {
+        charge.t += dt;
+      } else {
+        startSpin(charge.t / SPIN.chargeTime);
+        charge.active = false;
+      }
+    }
+
+    if (tch) touch.tick(dt); else input.tick(dt);
   }
+
   for (const bot of bots) bot.update(dt, world);
   if (frozen) {
     for (const p of players) {
@@ -162,25 +478,75 @@ function step(dt) {
     spendEnergy: (c) => pl.spendEnergy(c),
   });
   for (const pl of players) pl.update(dt, frozen, mkTarget(pl));
+
+  // ── Giro de escoba del jugador (DESPUÉS de player.update) ─────────────────
+  // Corre también en táctil: el botón GOLPE dispara el mismo giro que el LMB.
+  if (!BOTS) {
+    const b = playerA.broom;
+    // Si la escoba se pega un golpazo a mitad de giro, se corta acá: liberar
+    // el freeze para que el cuerpo no quede pegado a un lado para siempre.
+    if (spin.active && b.slamT > 0) {
+      spin.active = false;
+      playerA.rider.freezeFlip = null;
+    }
+    if (spin.active) {
+      spin.t += dt;
+      const k = clamp(spin.t / SPIN.dur, 0, 1);
+      const eased = 1 - Math.pow(1 - k, 2.4);
+      b.angle  = wrapAngle(spin.from + spin.dir * Math.PI * 2 * eased);
+      b.angVel = spin.dir * (Math.PI * 2 / SPIN.dur) * (1 - k) * 2.4;
+
+      if (spin.aimed && !spin.hit) {
+        const dx = ball.pos.x - b.pos.x, dy = ball.pos.y - b.pos.y;
+        const d = Math.hypot(dx, dy) || 1;
+        if (d > SPIN.reachPad * 0.5) {
+          b.vel.x += (dx / d) * SPIN.homingAcc * dt;
+          b.vel.y += (dy / d) * SPIN.homingAcc * dt;
+        }
+      }
+
+      const tip = b.tip();
+      particles.magicTrail(tip.x, tip.y, -b.dir().x, -b.dir().y, 0.9, 0.5, CFG.colors.p1);
+
+      if (k >= 1) {
+        spin.active = false;
+        b.angVel = 0;
+        playerA.rider.freezeFlip = null; // el próximo frame recalcula del ángulo final
+      }
+    }
+
+    // Detección de contacto escoba→pelota durante el giro
+    if (spin.active && spin.aimed) {
+      const tip = b.tip(), tail = b.tail();
+      const c = closestOnSegment(ball.pos.x, ball.pos.y, tail.x, tail.y, tip.x, tip.y);
+      const d = Math.hypot(ball.pos.x - c.x, ball.pos.y - c.y);
+      if (d < ball.r + SPIN.catchR) {
+        const first = !spin.hit;
+        applySpinHit();
+        spin.holdT = SPIN.holdAim;
+        if (first) { particles.impact(c.x, c.y, 480); sound.impact(700); }
+      }
+    }
+    // Ventana post-contacto
+    if (!spin.active && spin.holdT > 0) {
+      spin.holdT -= dt;
+      const sp = Math.hypot(ball.vel.x, ball.vel.y);
+      if (sp > 1) { ball.vel.x = spin.aimX * sp; ball.vel.y = spin.aimY * sp; }
+    }
+  }
+
   for (const pl of players) {
     collideBroomArena(
       pl.broom,
       (x, y, s) => fx.onImpact(x, y, s, 'wall'),
+      // Golpazo contra pared/suelo: se ve y se oye fuerte, pero se recupera
+      // solo. Antes acá empezaba el forcejeo para desclavarse.
       (x, y, nx, ny, s) => {
         sound.thunk();
-        particles.impact(x, y, s * 0.6);
-        pl.stuckAt = { x, y, nx, ny };
+        particles.impact(x, y, s * 0.9);
+        camera.shake(6, 14);
       },
     );
-    // Mientras forcejea: chispas en el punto de impacto y, al soltarse, pop
-    const b = pl.broom;
-    if (b.stuck && pl.stuckAt) {
-      particles.scrape(pl.stuckAt.x, pl.stuckAt.y, pl.stuckAt.nx, pl.stuckAt.ny, b.strain);
-    } else if (pl.stuckAt && !b.stuck) {
-      particles.impact(pl.stuckAt.x, pl.stuckAt.y, 320);
-      sound.pop();
-      pl.stuckAt = null;
-    }
   }
   for (const pl of players) clampRiderArena(pl);
 
@@ -196,31 +562,91 @@ function step(dt) {
   if (!ball.frozen) {
     applyPortalSuction(ball, dt);
     ball.update(dt);
+
+    // ── Anti-esquina ──────────────────────────────────────────────────────
+    // Si la pelota queda casi quieta arrinconada más de 5 s, un empujón suave
+    // hacia el centro la devuelve al juego. Es el único estado aburrido que
+    // puede producir la física: dos jugadores lejos y la pelota muerta en un
+    // rincón donde nadie la ve.
+    {
+      const nearX = Math.min(ball.pos.x - CFG.arena.L, CFG.arena.R - ball.pos.x) < 160;
+      const nearY = Math.min(ball.pos.y - CFG.arena.T, CFG.arena.B - ball.pos.y) < 160;
+      const slow = Math.hypot(ball.vel.x, ball.vel.y) < 45;
+      if (nearX && nearY && slow && match.state === 'play') {
+        _cornerT += dt;
+        if (_cornerT > 5) {
+          _cornerT = 0;
+          const d = Math.hypot(ball.pos.x, ball.pos.y) || 1;
+          ball.vel.x += (-ball.pos.x / d) * 340;
+          ball.vel.y += (-ball.pos.y / d) * 340 - 120;
+          particles.impact(ball.pos.x, ball.pos.y, 260);
+        }
+      } else {
+        _cornerT = 0;
+      }
+    }
     if (ball.fire > 0) particles.fireTrail(ball.pos.x, ball.pos.y, ball.vel.x, ball.vel.y, ball.fire);
-    for (const pl of players) interactPlayerBall(pl, ball, dt, fx);
+    else {
+      // Polvo mágico del orbe. Solo cuando NO está en llamas: con fuego ya
+      // emite ascuas, y superponer las dos cosas sería ruido.
+      const bs = Math.hypot(ball.vel.x, ball.vel.y);
+      particles.ballSparkle(ball.pos.x, ball.pos.y, ball.vel.x, ball.vel.y,
+        Math.min(bs / 900, 1));
+    }
+    // Durante el giro del jugador, la colisión escoba→pelota la maneja el spin
+    for (const pl of players) {
+      if (pl === playerA && spin.active) continue;
+      interactPlayerBall(pl, ball, dt, fx);
+    }
     const goal = collideBallArena(ball, (x, y, s) => { if (s > 180) fx.onImpact(x, y, s, 'wall'); });
-    if (goal && match.state === 'play') match.onGoal(goal);
+    if (goal && match.state === 'play') {
+      if (REPLAY_ON) {
+        // Un último snapshot FORZADO con la pelota ya cruzando la línea. El
+        // grabado periódico va a 30 Hz, así que su última muestra puede ser de
+        // hasta 33 ms antes — sin este frame la repetición cortaba con la
+        // pelota todavía en el aire y el gol no se llegaba a ver.
+        replayRec.push(world);
+        _pendingClip = replayRec.toClip();
+      }
+      // Se congela ACÁ: un frame más tarde la succión del portal ya arrastra
+      // la pelota y la explosión vuela a los magos, y la repetición terminaría
+      // mostrando el festejo en vez de la jugada.
+      match.onGoal(goal);
+    }
   }
 
-  // Orbes: energía repartida por la arena
-  orbs.update(dt);
-  orbs.collect(players, (orb, pl, oy) => {
-    pl.addEnergy(CFG.orbs.energy);
-    const color = pl.team === 'p1' ? CFG.colors.p1 : CFG.colors.p2;
-    particles.orbAbsorb(orb.fx, oy, pl.broom.pos, color);
-    sound.orb();
-  });
+  // Orbes: energía repartida por la arena. Con la opción desactivada no
+  // existen (orbs/runner son null), así que se saltea el bloque entero.
+  if (orbs) {
+    orbs.update(dt);
+    orbs.collect(players, (orb, pl, oy) => {
+      pl.addEnergy(CFG.orbs.energy);
+      const color = pl.team === 'p1' ? CFG.colors.p1 : CFG.colors.p2;
+      particles.orbAbsorb(orb.fx, oy, pl.broom.pos, color);
+      sound.orb();
+    }, dt);
+  }
 
   // Orbe fugitivo: solo corre con el partido en juego
-  runner.update(dt, players, match.state === 'play', {
-    onAppear: (x, y) => { particles.runnerBurst(x, y); sound.runnerAppear(); },
-    onEscape: (x, y) => { particles.runnerBurst(x, y); },
-  });
-  const caught = runner.collect(players);
-  if (caught) {
-    caught.grantUnlimited(CFG.runner.buff);
-    particles.runnerCatch(runner.x, runner.y, caught.broom.pos);
-    sound.runnerCatch();
+  if (runner) {
+    runner.update(dt, players, match.state === 'play', {
+      onAppear: (x, y) => { particles.runnerBurst(x, y); sound.runnerAppear(); },
+      onEscape: (x, y) => { particles.runnerBurst(x, y); },
+    });
+    const caught = runner.collect(players);
+    if (caught) {
+      caught.grantUnlimited(CFG.runner.buff);
+      particles.runnerCatch(runner.x, runner.y, caught.broom.pos);
+      sound.runnerCatch();
+      // Récord histórico de fugitivos atrapados (solo los del humano)
+      if (caught === playerA && !BOTS && !PRACTICE) {
+        recordRunnerCatch();
+        if (loadStats().runners >= 3) {
+          const c = completeChallenge('cazador');
+          if (c) { world.challengeQueue.push(c); sound.stingChallenge(); }
+        }
+      }
+    }
   }
   // Chispas doradas mientras dura la energía ilimitada
   for (const pl of players) {
@@ -237,57 +663,248 @@ function step(dt) {
     const tail = b.tail(), d = b.dir();
     const color = pl.team === 'p1' ? CFG.colors.p1 : CFG.colors.p2;
     const speedF = Math.min(Math.hypot(b.vel.x, b.vel.y) / 900, 1.4);
-    particles.magicTrail(tail.x, tail.y, d.x, d.y,
+    // Cada personaje deja SU estela: es lo que lo hace reconocible de lejos,
+    // incluso cuando el cuerpo es un puñado de píxeles cruzando la cancha.
+    emitTrail(pl.characterId, particles, tail.x, tail.y, d.x, d.y,
       Math.max(b.thrustPower, speedF * 0.55), b.boostPower, color);
     if (b.brakePower > 0.3) particles.brake(b.pos.x, b.pos.y, b.vel.x, b.vel.y);
   }
   particles.update(dt);
 }
 
+// Acciones del overlay de pausa (ver world.pauseMenu / render.js#_pauseMenu).
+function _pauseAction(id) {
+  if (id === 'continuar') { world.paused = false; return; }
+  if (id === 'controles') { world.controlsScreen.open = true; return; }
+  if (id === 'menu') { location.href = 'index.html'; return; }
+  if (id === 'salir') {
+    // window.close() solo funciona si la pestaña la abrió un script (o el
+    // usuario dio permiso explícito). Si el navegador la ignora, seguimos en
+    // la misma página — no hay forma de forzar el cierre desde acá, así que
+    // avisamos en vez de fallar en silencio.
+    window.close();
+    world.pauseMenu.closeBlockedT = 4;
+  }
+}
+
 // --- Loop principal ---
 let last = performance.now();
 let acc = 0;
 let prevMatchState = null;
+// Tiempo de partido pendiente de aplicar. Existe porque la física avanza en
+// pasos discretos y el reloj del partido tiene que seguirla sin perder ni
+// inventar tiempo (ver el cálculo más abajo).
+let matchTimeDebt = 0;
 
 function frame(now) {
   requestAnimationFrame(frame);
   let dtReal = Math.min((now - last) / 1000, 0.1);
   last = now;
 
+  // ── Pantalla de controles ───────────────────────────────────────────────
+  // Se traga toda la entrada mientras está abierta: es una puerta al partido,
+  // así que ni las teclas globales ni el juego reciben nada hasta cerrarla.
+  const cs = world.controlsScreen;
+  if (cs.open) {
+    cs.hot = null;
+    for (const r of cs.rects) {
+      if (input.cursor.x >= r.x && input.cursor.x <= r.x + r.w
+        && input.cursor.y >= r.y && input.cursor.y <= r.y + r.h) { cs.hot = r.id; break; }
+    }
+    const cerrar = input.pressed('lmb') || input.pressed('Enter')
+      || input.pressed('Space') || input.pressed('Escape') || touch.consumeTap();
+    if (cerrar) {
+      cs.open = false;
+      // Si se abrió durante la cuenta regresiva, que arranque de cero para
+      // no perder los primeros segundos leyendo.
+      if (match.state === 'countdown') match.reset(false);
+    }
+    input.endFrame();
+    renderer.draw(world, dtReal);
+    return;
+  }
+
+  // ── Repetición del gol ──────────────────────────────────────────────────
+  // Mientras corre, el partido queda congelado: no avanza física ni reloj.
+  // Cualquier tecla de acción la saltea — la idea es que nunca estorbe a
+  // quien ya vio lo que pasó y quiere seguir jugando.
+  if (replay.active) {
+    const saltear = input.pressed('Space') || input.pressed('lmb')
+      || input.pressed('Enter') || input.pressed('Escape') || touch.consumeTap();
+    if (saltear) replay.stop();
+    else replay.update(dtReal, camera.baseZoom(),
+      { w: canvas.clientWidth, h: canvas.clientHeight });
+    input.endFrame();
+    renderer.draw(world, dtReal);
+    return;
+  }
+
   // Teclas globales
-  if (input.pressed('KeyP') || input.pressed('Escape')) world.paused = !world.paused;
+  if (input.pressed('KeyP') || input.pressed('Escape') || touch.consumePauseTap()) {
+    world.paused = !world.paused;
+  }
   if (input.pressed('F3')) { debugOn = !debugOn; world.debug = debugOn; }
   if (input.pressed('KeyR')) match.reset(true);
   // Al entrar a la pantalla de fin, se descarta cualquier toque que haya
   // quedado de un botón presionado justo antes del gol — si no, el primer
   // frame reiniciaría solo.
-  if (match.state === 'end' && prevMatchState !== 'end') touch.consumeTap();
-  if (match.state === 'end' && (input.pressed('lmb') || input.pressed('Enter') || touch.consumeTap())) {
+  if (match.state === 'end' && prevMatchState !== 'end') {
+    touch.consumeTap();
+    // Registrar el partido UNA vez, en la transición a 'end'. La pantalla de
+    // fin lee world.lastStats para mostrar la racha y los récords nuevos.
+    if (!BOTS && !PRACTICE) {
+      world.lastStats = recordMatch({
+        winner: match.winner,
+        scoreFor: match.score.p1,
+        scoreAgainst: match.score.p2,
+      });
+
+      // Sting de cierre: la victoria se celebra, la derrota se reconoce corto
+      if (match.winner === 'p1') sound.stingWin();
+      else if (match.winner === 'p2') sound.stingLose();
+
+      // Desafíos que se resuelven con el resultado del partido
+      if (match.winner === 'p1') {
+        const done = [
+          completeChallenge('primera'),
+          match.score.p2 === 0 ? completeChallenge('muralla') : null,
+          match.score.p1 - match.score.p2 >= 3 ? completeChallenge('goleada') : null,
+          DIFFICULTY === 'dificil' ? completeChallenge('leyenda') : null,
+          world.lastStats.streak >= 3 ? completeChallenge('imparable') : null,
+        ].filter(Boolean);
+        if (done.length) {
+          world.challengeQueue.push(...done);
+          sound.stingChallenge();
+        }
+      }
+    }
+  }
+
+  // Overlay de pausa: hover con la posición del mouse (ya la trae input.cursor
+  // en px de pantalla, igual sistema de coordenadas que usó render.js para
+  // dibujar los botones) y click para elegir.
+  if (world.paused) {
+    const pm = world.pauseMenu;
+    pm.hot = null;
+    for (const r of pm.rects) {
+      if (input.cursor.x >= r.x && input.cursor.x <= r.x + r.w
+        && input.cursor.y >= r.y && input.cursor.y <= r.y + r.h) { pm.hot = r.id; break; }
+    }
+    if (input.pressed('lmb') && pm.hot) _pauseAction(pm.hot);
+  } else if (match.state === 'end' && (input.pressed('lmb') || input.pressed('Enter') || touch.consumeTap())) {
+    // Partido nuevo, SIN presentación: el jugador ya está en la cancha y
+    // acaba de ver el marcador final. Repetir el viaje de cámara acá es lo
+    // que se sentía fuera de lugar.
     match.reset(true);
   }
+
+  // La repetición arranca cuando el festejo del gol termina y el partido pasa
+  // al saque. Así el orden es: gol → explosión y "¡GOOOL!" → repetición →
+  // cuenta regresiva. Mostrarla en el instante del gol pisaría la celebración,
+  // que es justo el momento que da la satisfacción.
+  if (_pendingClip && prevMatchState === 'goal' && match.state !== 'goal') {
+    if (match.state !== 'end' && replay.start(_pendingClip, match.goalScorer)) {
+      // Arrancó: el buffer se limpia para que el próximo gol no arrastre
+      // frames de este punto.
+      replayRec.clear();
+    }
+    _pendingClip = null;
+  }
+  // Piromanía: gol del humano con la pelota EN LLAMAS en el momento de entrar
+  if (match.state === 'goal' && prevMatchState !== 'goal'
+      && match.goalScorer === 'p1' && ball.fire > 0 && !BOTS && !PRACTICE) {
+    const c = completeChallenge('piromania');
+    if (c) { world.challengeQueue.push(c); sound.stingChallenge(); }
+  }
+
   prevMatchState = match.state;
+
+  // Dash: solo registrar si el juego está corriendo (no pausado, no fin) y ya
+  // pasó el bloqueo del arranque. Se filtra acá, en el registro, y no solo al
+  // consumirlo: si no, apretar Space durante el bloqueo dejaría el comando
+  // guardado y saldría solo al cumplirse los 5 s — el mismo bug de buffer que
+  // ya se arregló para la carga inicial.
+  const dashInput = input.pressed('Space') || touch.consumeDashTap();
+  if (dashInput && !world.paused && match.dashAllowed()) _dashPending = true;
+
   input.endFrame();
 
-  if (!world.paused) {
-    match.update(dtReal, world);
+  if (world.paused && world.pauseMenu.closeBlockedT > 0) {
+    world.pauseMenu.closeBlockedT = Math.max(0, world.pauseMenu.closeBlockedT - dtReal);
+  }
 
-    // Física con slowmo del gol
+  if (!world.paused) {
+    // Física con slowmo del gol.
+    //
+    // El paso fijo de 120 Hz y la cámara lenta se llevan mal: con timeScale
+    // 0.22 el acumulador recibe ~3.7 ms por frame pero un paso cuesta 8.3 ms,
+    // así que la MAYORÍA de los frames no ejecutaban ningún paso — medido:
+    // 56% de frames con la física congelada. El mundo avanzaba a tirones (se
+    // congela dos frames, salta uno) y eso se ve exactamente como si el juego
+    // perdiera FPS, aunque el render siguiera a 60 clavados. Bajar el costo
+    // por frame no lo arreglaba porque el problema nunca fue el costo.
+    //
+    // La solución es achicar el paso mientras dura el slowmo: si el mundo
+    // avanza al 22%, el paso también. Así cada frame ejecuta al menos un paso
+    // y el movimiento se ve continuo. El paso más chico es además más preciso,
+    // y como el mundo avanza menos tiempo real por frame, el costo total no
+    // sube: son los mismos ~2 pasos por frame que en juego normal.
+    const slowing = match.timeScale < 0.95;
+    const stepDt = slowing
+      ? Math.max(FIXED_DT * match.timeScale, FIXED_DT / 8)
+      : FIXED_DT;
     acc += dtReal * match.timeScale;
     const maxSteps = 6;
     let steps = 0;
-    while (acc >= FIXED_DT && steps < maxSteps) {
-      step(FIXED_DT);
-      acc -= FIXED_DT;
+    while (acc >= stepDt && steps < maxSteps) {
+      step(stepDt);
+      acc -= stepDt;
       steps++;
     }
     if (steps === maxSteps) acc = 0; // evitar espiral de la muerte
 
-    // Cámara: fija en gameplay, con un acento sutil a mucha velocidad
-    const spA = Math.hypot(playerA.broom.vel.x, playerA.broom.vel.y);
-    camera.setSpeedPunch(clamp((spA - 900) / 700, 0, 1));
-    camera.update(dtReal, playerA.broom.pos, ball.pos);
+    // El partido avanza con el tiempo que la física REALMENTE simuló, no con
+    // el del reloj de pared. Cuando un frame se pasa de `maxSteps` (lag, tab
+    // en segundo plano) el sobrante se descarta: si el reloj siguiera usando
+    // dtReal, correría más rápido que el mundo — medido: con frames de 100 ms
+    // se simulaba el 50% de la física mientras el cronómetro avanzaba entero,
+    // y el partido terminaba antes de haberse jugado.
+    //
+    // Se ACUMULA en vez de aplicarse frame a frame porque a más de 120 FPS
+    // hay frames que no ejecutan ningún paso (a 240 Hz, la mitad): pasarle 0
+    // al partido esos frames dejaba la cuenta regresiva y sus beeps con
+    // hipo. Acumulando, el tiempo llega completo aunque venga a tirones.
+    // `stepDt` ya viene escalado por timeScale, así que se divide para
+    // volver a tiempo real.
+    matchTimeDebt += slowing
+      ? (steps * stepDt) / match.timeScale
+      : steps * stepDt;
+    if (matchTimeDebt > 0) {
+      // El tope evita que una pausa larga se descargue de golpe en un frame.
+      const give = Math.min(matchTimeDebt, dtReal);
+      matchTimeDebt -= give;
+      match.update(give, world);
+    }
+
+    // Cámara fija: siempre centrada, sin seguir al jugador ni zoom por velocidad
+    camera.update(dtReal, null, null);
+
+    // Grabar para la repetición. Solo con el punto en juego: durante la cuenta
+    // regresiva y el festejo no pasa nada que valga la pena volver a ver, y
+    // grabarlo solo gastaría los segundos útiles del buffer.
+    if (match.state === 'play') replayRec.record(dtReal, world);
+
+    // El coach mira el partido y decide si es momento de enseñar algo.
+    // Solo con teclado/mouse: en táctil los controles son otros y los
+    // hints de touch ya los cubre el renderer.
+    if (match.state === 'play' && !BOTS && !touch.active) coach.update(dtReal, world);
+
+    // Ambiente: suena mientras hay partido (juego y festejo), calla en la
+    // pantalla de fin — ahí mandan los stings.
+    sound.setAmbient(match.state === 'play' || match.state === 'goal' || match.state === 'countdown');
 
     // Sonido continuo
+    const spA = Math.hypot(playerA.broom.vel.x, playerA.broom.vel.y);
     sound.setThrust(playerA.broom.thrustPower);
     sound.setBoost(playerA.broom.boostPower);
     sound.setWind(spA);
@@ -297,17 +914,50 @@ function frame(now) {
 }
 
 const renderer = new Renderer(canvas, ctx);
+
+// ── Pantalla de carga ──────────────────────────────────────────────────────
+// play.html muestra un overlay hasta que el mapa (el asset pesado) está
+// listo. El timeout es la red de seguridad: si el mapa falla, el juego
+// arranca igual con el fondo plano en vez de colgarse en "cargando".
+{
+  const loadingEl = document.getElementById('loading');
+  if (loadingEl) {
+    const t0 = performance.now();
+    const tick = setInterval(() => {
+      if (renderer.mapReady || performance.now() - t0 > 6000) {
+        clearInterval(tick);
+        loadingEl.classList.add('off');
+        setTimeout(() => loadingEl.remove(), 500);
+      }
+    }, 80);
+  }
+}
 requestAnimationFrame(frame);
 
 // Hooks de debugging/testing por consola
 window.world = world;
 window.renderer = renderer;
 window.CFG = CFG;
+// Un solo paso de partido+física, para poder inspeccionar estados intermedios
+// (ej. verificar que el saque queda clavado durante toda la cuenta regresiva).
+// `dt` es TIEMPO REAL, igual que en frame(): match.update lo recibe tal cual y
+// escala internamente lo que corresponda. Antes acá se dividía por timeScale,
+// así que durante la cámara lenta el partido avanzaba 4.5× más rápido que en
+// el juego de verdad — las mediciones del festejo salían todas mal.
+window.__stepOnce = (dt = FIXED_DT) => {
+  match.update(dt, world);
+  step(dt);
+};
+// Solo el paso de física, sin tocar el estado del partido. Sirve para
+// reproducir el loop real en un test: frame() llama a match.update una vez
+// por FRAME y a step() varias veces por frame, y meter las dos cosas en el
+// mismo hook hacía imposible medir duraciones reales.
+window.__stepPhys = (dt = FIXED_DT) => step(dt);
 window.__sim = (seconds = 10) => {
   // Simula el partido sin render (validación de físicas y bots)
   const steps = Math.floor(seconds / FIXED_DT);
   for (let i = 0; i < steps; i++) {
-    match.update(FIXED_DT / match.timeScale, world);
+    match.update(FIXED_DT, world);
     step(FIXED_DT);
   }
   return {
@@ -316,7 +966,7 @@ window.__sim = (seconds = 10) => {
     timeLeft: match.timeLeft.toFixed(1),
     ballPos: { x: ball.pos.x | 0, y: ball.pos.y | 0 },
     pA: { x: playerA.broom.pos.x | 0, y: playerA.broom.pos.y | 0 },
-    pB: { x: playerB.broom.pos.x | 0, y: playerB.broom.pos.y | 0 },
+    pB: playerB ? { x: playerB.broom.pos.x | 0, y: playerB.broom.pos.y | 0 } : null,
   };
 };
 

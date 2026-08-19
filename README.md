@@ -76,16 +76,22 @@ rápido.
 ### Potencia: carga × energía × fuego
 
 La fuerza del golpe se decide **al soltar** y depende de cuánto mantuviste
-`Space` y de cuánta energía de orbes tenés en el frasco. Promedio de 6 tiros
-por fila:
+`Space` y de cuánta energía de orbes tenés en el frasco. Exagerada a
+propósito — un golpe a fondo tiene que sentirse como un cañonazo que cruza
+la cancha, no un pase fuerte. Medido disparando de un extremo al otro
+(cancha de 3169 de ancho):
 
-| | Velocidad de la pelota |
-|---|---|
-| Toque rápido, sin energía | 1133 |
-| Carga máxima, sin energía | 1392 |
-| Carga máxima, frasco al 49% | 1650 |
-| **Carga máxima, frasco al 51%** | **2187** 🔥 |
-| **Carga máxima, frasco lleno** | **2445** 🔥 |
+| | Pico de velocidad | Llega al arco opuesto |
+|---|---|---|
+| Toque rápido, sin energía | 514 | no (es un pase corto) |
+| **Carga máxima, sin energía** | **3494** | **sí — 78% de la cancha** |
+| **Carga máxima, frasco lleno** 🔥 | **6200** (tope) | **sí, sin bajar nunca de 2000 u/s** |
+
+El freno real de un cañonazo no era la velocidad de salida, era el drag
+cuadrático de la pelota: antes, un tiro a 3600 se comía media cancha en el
+primer instante y llegaba "muerto" al otro lado. Bajar el drag (`dragQuad`)
+fue lo que realmente lo hizo cruzar entero — subir solo la velocidad de
+salida no alcanzaba.
 
 ### 🔥 Tiro de fuego
 
@@ -164,13 +170,17 @@ Orbes mágicos repartidos por la arena. Los del centro caen sobre la ruta direct
 a la pelota; los de los costados obligan a desviarse — ahí está la decisión de
 ir por la pelota o cargar energía para la próxima jugada.
 
-Atravesarlos los absorbe al instante (partículas que viajan hacia la escoba) y
-llena el frasco del HUD. Con `Shift` se gasta esa reserva: **823 → 1663 u/s**,
-la reserva completa dura ~2 s. Al recogerse reaparecen a los 7 s, materializándose
-de a poco con un anillo de progreso para poder anticiparlos.
+El hitbox de contacto es generoso (`pickupR: 85`) y no hace falta pasar
+exactamente encima: rozarlo alcanza. Pero ya no se absorbe al instante — al
+tocarlo queda "enganchado" y vuela hacia la escoba (a 1300 u/s, o más rápido
+si el jugador va rápido, para no quedarse atrás) hasta alcanzarla de verdad;
+recién ahí se consume y llena el frasco del HUD. Con `Shift` se gasta esa
+reserva: **823 → 1663 u/s**, la reserva completa dura ~2 s. Al recogerse
+reaparecen a los 7 s, materializándose de a poco con un anillo de progreso
+para poder anticiparlos.
 
 Todo se ajusta en `CFG.orbs` (cantidad, posiciones en fracciones del campo,
-energía, respawn) y `CFG.boost`.
+energía, respawn, `pickupR`/`catchSpeed`/`catchDist` del enganche) y `CFG.boost`.
 
 ## ✨ Orbe fugitivo — energía ilimitada
 
@@ -193,8 +203,13 @@ infinita. Medido con 12 persecuciones por fila:
 Gastar energía **triplica** las chances.
 
 **Cómo escapa**: huye de cada perseguidor en *diagonal* (no en línea recta, que
-sería fácil de interceptar), esquiva las paredes antes de que lo acorralen, y
-deambula tranquilo cuando nadie lo persigue.
+sería fácil de interceptar) y esquiva las paredes antes de que lo acorralen.
+**Siempre está esquivando**, no solo cuando el jugador está cerca — la
+orientación de "alejarse" nunca se apaga (antes tenía un corte duro a 640 de
+distancia y más allá de eso ignoraba al jugador por completo, incluso
+acercándosele por puro azar del deambular). El pánico (y con él la velocidad
+tope) sigue creciendo solo cerca, así que de lejos escapa despacio y casi no
+zigzaguea, y de cerca corre a fondo esquivando fuerte.
 
 **Cansancio** — es lo que le da arco a la persecución. La reserva llena da
 apenas ~2 s de impulso, así que sin esto el orbe se escapaba siempre pasada esa

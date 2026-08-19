@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Ícono de la app: escoba en diagonal con estela y estrella sobre el
+       cielo nocturno del juego. Vector puro: escala a cualquier tamaño. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="32%" r="80%">
+      <stop offset="0%" stop-color="#1a2145"/>
+      <stop offset="100%" stop-color="#0a0c18"/>
+    </radialGradient>
+    <linearGradient id="palo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5d3a17"/>
+      <stop offset="100%" stop-color="#a8763e"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- estela mágica -->
+  <path d="M96 384 Q 200 360 280 280" stroke="#3fc0ff" stroke-width="14"
+        stroke-linecap="round" fill="none" opacity="0.5"/>
+  <path d="M120 420 Q 220 396 300 316" stroke="#3fc0ff" stroke-width="9"
+        stroke-linecap="round" fill="none" opacity="0.3"/>
+
+  <!-- ramas del cepillo -->
+  <g stroke="#c9a04e" stroke-width="16" stroke-linecap="round">
+    <line x1="140" y1="404" x2="196" y2="330"/>
+    <line x1="122" y1="376" x2="190" y2="318"/>
+    <line x1="156" y1="424" x2="204" y2="342"/>
+    <line x1="112" y1="350" x2="184" y2="306"/>
+  </g>
+  <g stroke="#e0c37a" stroke-width="9" stroke-linecap="round">
+    <line x1="146" y1="392" x2="198" y2="326"/>
+    <line x1="132" y1="366" x2="192" y2="314"/>
+  </g>
+  <!-- atadura -->
+  <line x1="186" y1="336" x2="212" y2="310" stroke="#5a3f22" stroke-width="26"
+        stroke-linecap="round"/>
+
+  <!-- palo -->
+  <line x1="200" y1="322" x2="400" y2="122" stroke="#10101c" stroke-width="40"
+        stroke-linecap="round"/>
+  <line x1="200" y1="322" x2="400" y2="122" stroke="url(#palo)" stroke-width="28"
+        stroke-linecap="round"/>
+
+  <!-- gema de la punta -->
+  <circle cx="404" cy="118" r="26" fill="#c9a04e"/>
+  <circle cx="404" cy="118" r="15" fill="#9fe0ff"/>
+
+  <!-- estrella -->
+  <path d="M370 340 l10 26 26 10 -26 10 -10 26 -10 -26 -26 -10 26 -10 z"
+        fill="#ffd54a"/>
+  <circle cx="300" cy="420" r="7" fill="#ffd54a" opacity="0.8"/>
+  <circle cx="430" cy="250" r="5" fill="#e8f8ff" opacity="0.7"/>
+</svg>

@@ -6,10 +6,14 @@ export class Sound {
     this.thrustGain = null;
     this.windGain = null;
     this.lastImpact = 0;
+    // Silencio total (opción del menú). Se corta en init(): sin AudioContext
+    // no hay nada que sonar, así que ningún método de abajo hace ruido — todos
+    // salen temprano si `this.ctx` es null.
+    this.muted = false;
   }
 
   init() {
-    if (this.ctx) return;
+    if (this.ctx || this.muted) return;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
@@ -197,5 +201,63 @@ export class Sound {
   pop() {
     this._blip(320, 0.13, 'sawtooth', 0.22);
     this._blip(760, 0.1, 'triangle', 0.14, 0.02);
+  }
+
+  // ── Ambiente del partido ──────────────────────────────────────────────
+  // Una cama sonora generativa en vez de un loop grabado: viento grave +
+  // punteos pentatónicos espaciados al azar. Al no repetirse nunca, no cansa
+  // — el peligro número uno de la música de fondo en partidas largas.
+  // Idempotente: se puede llamar cada frame con true/false sin costo.
+  setAmbient(on) {
+    if (!this.ctx) return;
+    if (on && !this._ambient) {
+      this._ambient = true;
+      // Viento de fondo, más grave y quieto que el viento de velocidad
+      if (!this.ambientGain) this.ambientGain = this._loop(240, 'lowpass', 0);
+      this.ambientGain.gain.setTargetAtTime(0.045, this.ctx.currentTime, 1.2);
+      // Punteos: nota pentatónica cada 1.2–2.8 s, a veces con quinta, a
+      // veces silencio. Volumen bajísimo: es textura, no melodía.
+      const NOTES = [220, 261.6, 293.7, 329.6, 392, 440, 523.3];
+      const pluck = () => {
+        if (!this._ambient) return;
+        if (Math.random() < 0.62) {
+          const n = NOTES[(Math.random() * NOTES.length) | 0];
+          this._blip(n, 1.4, 'triangle', 0.045);
+          if (Math.random() < 0.35) this._blip(n * 1.5, 1.2, 'sine', 0.028, 0.12);
+          if (Math.random() < 0.2) this._blip(n / 2, 1.8, 'sine', 0.03, 0.05);
+        }
+        this._ambientTimer = setTimeout(pluck, 1200 + Math.random() * 1600);
+      };
+      pluck();
+    } else if (!on && this._ambient) {
+      this._ambient = false;
+      clearTimeout(this._ambientTimer);
+      this.ambientGain?.gain.setTargetAtTime(0, this.ctx.currentTime, 0.8);
+    }
+  }
+
+  // Fanfarria de victoria: acorde mayor ascendente con remate
+  stingWin() {
+    if (!this.ctx) return;
+    const seq = [392, 523, 659, 784];
+    seq.forEach((n, i) => this._blip(n, 0.55, 'triangle', 0.26, i * 0.13));
+    this._blip(1047, 1.0, 'triangle', 0.3, seq.length * 0.13);
+    this._blip(262, 1.2, 'sawtooth', 0.1, seq.length * 0.13);
+    this._blip(1568, 0.5, 'sine', 0.1, seq.length * 0.13 + 0.1);
+  }
+
+  // Derrota: dos notas descendentes, cortas — reconoce el momento sin
+  // restregarlo. Perder tiene que doler poco para que "otra" salga solo.
+  stingLose() {
+    if (!this.ctx) return;
+    this._blip(330, 0.5, 'triangle', 0.2);
+    this._blip(247, 0.9, 'triangle', 0.18, 0.28);
+  }
+
+  // Desafío completado: campanita doble brillante
+  stingChallenge() {
+    if (!this.ctx) return;
+    this._blip(1047, 0.35, 'triangle', 0.2);
+    this._blip(1568, 0.6, 'triangle', 0.22, 0.12);
   }
 }

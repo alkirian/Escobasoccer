@@ -4,6 +4,9 @@
 import { CFG } from './config.js';
 import { portalCenter } from './arena.js';
 import { clamp, lerp } from './utils.js';
+import { loadSkin, loadBroomSkin } from './skin.js';
+import { CHARACTERS } from './characters.js';
+import { loadVSkin, drawVSkin, vskinEnabled } from './vecskin.js';
 
 // Escala del personaje. Las POSICIONES ya vienen escaladas desde la física
 // (el ragdoll usa posturas multiplicadas por esto), así que acá sólo hay que
@@ -21,10 +24,44 @@ export class Renderer {
     this.mapReady = false;
     this.mapImg.onload = () => { this.mapReady = true; };
     this.mapImg.src = CFG.arena.src;
+
+
+    // Skin de sprites hecho en /editor. Si hay uno guardado y está completo,
+    // reemplaza al dibujo geométrico. La física no cambia: el ragdoll sigue
+    // moviendo los mismos huesos, solo cambia lo que se pinta encima.
+    //
+    // Por defecto el juego usa el mago VECTORIAL, aunque haya skins guardados:
+    // es el look base del proyecto. Los PNG del editor siguen en localStorage
+    // intactos —el editor los abre igual— y se activan con `?skin` en la URL,
+    // o desde la consola con `renderer.useSkins(true)`.
+    this.skin = null;
+    this.broomSkin = null;
+    this.skinsEnabled = new URLSearchParams(location.search).has('skin');
+    if (this.skinsEnabled) this._loadSkins();
+
+    // Skin vectorial hecho en /veditor.html. Es síncrono (sin imágenes), así
+    // que se carga acá directo. El editor lo activa/desactiva con su toggle.
+    this.vskin = loadVSkin();
+    this.vskinOn = vskinEnabled();
+  }
+
+  _loadSkins() {
+    loadSkin().then(s => { if (s?.ready) this.skin = s; });
+    loadBroomSkin().then(s => { if (s?.ready) this.broomSkin = s; });
+  }
+
+  // Alterna entre el mago vectorial y los sprites del editor sin recargar.
+  // Apagar solo suelta las referencias: lo guardado no se toca.
+  useSkins(on = true) {
+    this.skinsEnabled = !!on;
+    if (on) this._loadSkins();
+    else { this.skin = null; this.broomSkin = null; }
+    return this.skinsEnabled;
   }
 
   draw(world, dtFrame) {
     this.t += dtFrame;
+    this._dt = dtFrame;   // para animaciones con física propia (confetti)
     const ctx = this.ctx;
     const W = this.canvas.clientWidth, H = this.canvas.clientHeight;
 
@@ -32,6 +69,9 @@ export class Renderer {
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = '#08061a';
     ctx.fillRect(0, 0, W, H);
+
+    // Repetición del gol: sustituye por completo la escena en vivo.
+    if (world.replay?.active) { this._drawReplay(ctx, world, W, H); return; }
 
     ctx.save();
     world.camera.applyTransform(ctx);
@@ -54,93 +94,189 @@ export class Renderer {
       this._player(ctx, pl, c.main, c.dark, world);
     }
     const cA = this._teamColors(world.playerA);
+    // Halo DEBAJO del jugador: va antes de dibujarlo para que quede por detrás
+    // y no le lave los colores al skin. Es la señal que sobrevive al desorden —
+    // con la pantalla llena de partículas y dos magos encimados, el anillo en
+    // el piso sigue diciendo cuál sos.
+    if (!world.botsMode) this._selfHalo(ctx, world.playerA, cA.main);
     this._player(ctx, world.playerA, cA.main, cA.dark, world);
-    if (list.length > 2 && !world.botsMode) this._selfMarker(ctx, world.playerA, cA.main);
+    // La flecha ahora también en 1v1: identificar tu mago de un vistazo importa
+    // igual cuando hay uno solo del otro equipo, sobre todo tras un gol cuando
+    // la explosión manda a todos por el aire.
+    if (!world.botsMode) this._selfMarker(ctx, world.playerA, cA.main);
     this._ball(ctx, world.ball);
 
     if (world.debug) this._debug(ctx, world);
+    // Anillo de carga del golpe (en espacio de mundo, sobre la escoba del jugador)
+    if (world.charge) this._spinChargeRing(ctx, world);
     ctx.restore();
 
     this._aimIndicator(ctx, world);
-    this._offscreenGoals(ctx, world, W, H);
+    // Acá iban las flechas de "arco fuera de cámara" (una por portal) y la del
+    // orbe fugitivo. Eran de cuando la cámara seguía al jugador y las cosas se
+    // salían de cuadro; con la cámara fija mostrando la cancha entera nunca se
+    // cumple esa condición, así que solo quedaban pegadas al borde sin motivo.
     if (world.touch) world.touch.draw(ctx, W, H);
     this._hud(ctx, world, W, H);
+    this._challengeToast(ctx, world, W);
+    // El confetti vive solo en la pantalla de fin; al salir se descarta para
+    // regenerarse fresco en la próxima victoria.
+    if (world.match?.state !== 'end') this.confetti = null;
   }
 
-  // ---------- INDICADORES DE ARCO FUERA DE CÁMARA ----------
-  // La cámara ahora sigue al jugador y la pelota en vez de mostrar el mapa
-  // entero, así que los arcos quedan fuera de cuadro seguido. Sin esto sería
-  // fácil perder la orientación de hacia dónde hay que llevar la pelota.
-  // Se dibuja una flecha en el borde de la pantalla, en el color del equipo
-  // dueño de ese arco, apuntando en la dirección real hacia el portal.
-  // Rectángulo "seguro" para las flechas: recortado arriba (marcador) y abajo
-  // (frasco de energía + runa de habilidad, ambos en la esquina inferior
-  // izquierda) para que nunca se dibujen encima del HUD.
-  _safeRect(W, H) {
-    return { left: 30, right: W - 30, top: 74, bottom: H - 214 };
-  }
-
-  // Dibuja una flecha en el borde del rectángulo seguro apuntando hacia
-  // (sx, sy). Devuelve false si el objetivo ya estaba cómodamente visible.
-  // El recorte es eje por eje porque el rectángulo NO está centrado en la
-  // pantalla: asumir simetría hace que la flecha termine pisando el HUD.
-  _edgeArrow(ctx, W, H, sx, sy, color, inner, scale = 1) {
-    const s = this._safeRect(W, H);
-    if (sx > s.left + inner && sx < s.right - inner
-      && sy > s.top + inner && sy < s.bottom - inner) return false;
-
-    const cx = W / 2, cy = H / 2;
-    const dx = sx - cx, dy = sy - cy;
-    let t = Infinity;
-    if (dx > 0) t = Math.min(t, (s.right - cx) / dx);
-    else if (dx < 0) t = Math.min(t, (s.left - cx) / dx);
-    if (dy > 0) t = Math.min(t, (s.bottom - cy) / dy);
-    else if (dy < 0) t = Math.min(t, (s.top - cy) / dy);
-    if (!isFinite(t)) return false;
+  // ---------- REPETICIÓN DEL GOL ----------
+  // Redibuja un frame grabado con la misma maquinaria que la escena en vivo.
+  // El truco es reconstruir objetos con la FORMA que esperan `_player` y
+  // `_ball` (broom con pos/angle, rider con points/cape): así el mago de la
+  // repetición se dibuja con el mismo código que el de verdad, y cualquier
+  // cambio de arte vale para los dos sin tocar nada acá.
+  _drawReplay(ctx, world, W, H) {
+    const rp = world.replay;
+    const frame = rp.frameAt(rp.t);
+    if (!frame) return;
 
     ctx.save();
-    ctx.translate(cx + dx * t, cy + dy * t);
-    ctx.rotate(Math.atan2(dy, dx));
-    ctx.scale(scale, scale);
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.22;
-    ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.fill();
-    ctx.globalAlpha = 0.92;
-    ctx.beginPath();
-    ctx.moveTo(13, 0);
-    ctx.lineTo(-8, -9);
-    ctx.lineTo(-2, 0);
-    ctx.lineTo(-8, 9);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(10,8,25,0.55)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    // Cámara propia de la repetición: más cerca y siguiendo la jugada.
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(rp.cam.zoom, rp.cam.zoom);
+    ctx.translate(-rp.cam.x, -rp.cam.y);
+
+    this._map(ctx);
+    this._portalAura(ctx, -1, world);
+    this._portalAura(ctx, 1, world);
+
+    // Sombras: las de la repetición salen del snapshot, no del mundo vivo
+    for (const p of frame.players) {
+      this._groundShadow(ctx, p.broom.x, p.broom.y, 62 * S);
+      if (p.points.pelvis) this._groundShadow(ctx, p.points.pelvis.x, p.points.pelvis.y, 26 * S);
+    }
+    this._groundShadow(ctx, frame.ball.x, frame.ball.y, frame.ball.r * 1.05);
+
+    // Pelota (estela + cuerpo) y magos, en el mismo orden que en vivo
+    const ballLike = this._replayBall(frame.ball);
+    this._ballTrail(ctx, ballLike);
+
+    const stubs = frame.players.map((p) => this._replayPlayer(p));
+    const stubWorld = { botsMode: world.botsMode, playerA: null };
+    for (const s of stubs) if (!s.__isHuman) {
+      const c = this._teamColors(s);
+      this._player(ctx, s, c.main, c.dark, stubWorld);
+    }
+    const human = stubs.find((s) => s.__isHuman);
+    if (human) {
+      const c = this._teamColors(human);
+      if (!world.botsMode) this._selfHalo(ctx, human, c.main);
+      this._player(ctx, human, c.main, c.dark, stubWorld);
+    }
+    this._ball(ctx, ballLike);
+
     ctx.restore();
-    ctx.globalAlpha = 1;
-    return true;
+
+    this._replayHud(ctx, world, W, H);
   }
 
-  _offscreenGoals(ctx, world, W, H) {
-    const cam = world.camera;
-    for (const side of [-1, 1]) {
-      const p = portalCenter(side);
-      const sx = W / 2 + (p.x - cam.x) * cam.zoom;
-      const sy = H / 2 + (p.y - cam.y) * cam.zoom;
-      const color = side === -1 ? CFG.colors.p1 : CFG.colors.p2;
-      // inner 90: el arco ya se ve por su propio resplandor antes del borde
-      this._edgeArrow(ctx, W, H, sx, sy, color, 90);
+  // Objeto con la forma de Player que `_player` sabe dibujar. Los métodos que
+  // el dibujo consulta (tip/tail/dir) se derivan del ángulo guardado.
+  _replayPlayer(p) {
+    const half = CFG.broom.halfLen;
+    const b = p.broom;
+    const dir = { x: Math.cos(b.angle), y: Math.sin(b.angle) };
+    const broom = {
+      pos: { x: b.x, y: b.y },
+      vel: { x: b.velX, y: b.velY },
+      angle: b.angle,
+      thrustPower: b.thrustPower,
+      boostPower: b.boostPower,
+      brakePower: b.brakePower,
+      strain: b.strain,
+      stuck: null,
+      slamT: 0, slamMag: 0,
+      dir: () => dir,
+      tip:  () => ({ x: b.x + dir.x * half, y: b.y + dir.y * half }),
+      tail: () => ({ x: b.x - dir.x * half, y: b.y - dir.y * half }),
+    };
+    return {
+      __isHuman: p.isHuman,
+      team: p.team,
+      index: p.index,
+      broom,
+      rider: {
+        points: p.points, cape: p.cape, footTrail: [], phase: 'idle',
+        // El anillo de carga es un indicador EN VIVO (qué está por hacer el
+        // jugador ahora). En una repetición no significa nada, así que se
+        // apaga devolviendo carga cero.
+        chargeAmount: () => 0,
+        isArmed: () => false,
+        freezeFlip: null,
+        flipSide: Math.cos(b.angle) >= 0 ? 1 : -1,
+      },
+      energy: 0,
+      energyFrac: 0,
+      energyPulse: 0,
+      unlimitedT: 0,
+      unlimited: false,
+      control: { aim: { x: b.x, y: b.y } },
+    };
+  }
+
+  _replayBall(b) {
+    return {
+      pos: { x: b.x, y: b.y },
+      // La velocidad grabada, no cero: el orbe se estira y brilla según cuán
+      // rápido va, así que sin esto la repetición lo mostraría siempre inerte.
+      vel: { x: b.vx || 0, y: b.vy || 0 },
+      r: b.r, rot: b.rot, scale: b.scale, fire: b.fire,
+      trail: b.trail,
+    };
+  }
+
+  // Cartel de la repetición: quién hizo el gol, barra de progreso y cómo
+  // saltearla. Las franjas negras arriba y abajo la separan del juego en vivo
+  // — es lenguaje de transmisión deportiva, se lee sin explicación.
+  _replayHud(ctx, world, W, H) {
+    const rp = world.replay;
+    const barH = Math.round(H * 0.075);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(4,3,12,0.92)';
+    ctx.fillRect(0, 0, W, barH);
+    ctx.fillRect(0, H - barH, W, barH);
+
+    // Etiqueta REPETICIÓN, con un punto rojo que late como el REC de una cámara
+    const cy = barH / 2;
+    const blink = 0.55 + 0.45 * Math.sin(this.t * 6);
+    ctx.beginPath();
+    ctx.arc(28, cy, 6, 0, 7);
+    ctx.fillStyle = `rgba(255,80,80,${blink})`;
+    ctx.fill();
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 15px Georgia, serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillText('REPETICIÓN', 44, cy);
+
+    if (rp.scorer) {
+      const mine = rp.scorer === 'p1';
+      ctx.font = 'bold 15px Georgia, serif';
+      ctx.fillStyle = mine ? CFG.colors.p1 : CFG.colors.p2;
+      ctx.fillText(mine ? 'Tu gol' : 'Gol del rival', 152, cy);
     }
 
-    // El fugitivo también necesita flecha, y más grande: es el único objeto
-    // del juego que se mueve solo, así que perderlo de vista es perderlo.
-    const r = world.runner;
-    if (r && (r.state === 'alive' || r.state === 'warn')) {
-      const sx = W / 2 + (r.x - cam.x) * cam.zoom;
-      const sy = H / 2 + (r.y - cam.y) * cam.zoom;
-      const pulse = 1.15 + 0.25 * Math.sin(this.t * 7);
-      this._edgeArrow(ctx, W, H, sx, sy, '#ffd76a', 40, pulse);
-    }
+    // Progreso del clip
+    const pw = Math.min(300, W * 0.28);
+    const px = W - pw - 150;
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillRect(px, cy - 2, pw, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillRect(px, cy - 2, pw * rp.progress, 4);
+
+    ctx.textAlign = 'right';
+    ctx.font = '13px Georgia, serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText('ESPACIO  saltear', W - 28, cy);
+
+    ctx.restore();
   }
 
   // ---------- MAPA ----------
@@ -567,21 +703,93 @@ export class Renderer {
       }
     }
 
-    // Capa (detrás de todo)
-    ctx.beginPath();
-    ctx.moveTo(r.cape[0].x, r.cape[0].y);
-    for (let i = 1; i < r.cape.length; i++) {
-      const w = (12 - i * 1.5) * S;
-      ctx.lineTo(r.cape[i].x, r.cape[i].y + w);
+    // Skin de sprites: si el jugador cargó uno en /editor, se dibuja en lugar
+    // del cuerpo geométrico. La escoba va en el medio del orden (entre el
+    // cuerpo de atrás y el de adelante), por eso se pasa como callback.
+    if (this.skin) {
+      // El lado del espejo viene del ragdoll (freezeFlip ?? flipSide): es la
+      // MISMA fuente que usa la física para espejar la pose, así el sprite y
+      // el cuerpo nunca quedan en lados distintos (ni parpadean en vertical).
+      const facing = player.rider
+        ? (player.rider.freezeFlip ?? player.rider.flipSide ?? 1)
+        : (Math.cos(b.angle) >= 0 ? 1 : -1);
+      this.skin.draw(ctx, p, S, () => this._broom(ctx, b, player), facing);
+      // Las manos van siempre encima: son el punto de agarre y tienen que
+      // leerse pegadas al palo aunque el sprite del brazo no llegue justo.
+      ctx.fillStyle = CFG.colors.skin;
+      ctx.beginPath(); ctx.arc(p.handF.x, p.handF.y, 5.5 * S, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.handB.x, p.handB.y, 5 * S, 0, 7); ctx.fill();
+      return;
     }
-    for (let i = r.cape.length - 1; i >= 0; i--) {
-      const w = (12 - i * 1.5) * S;
-      ctx.lineTo(r.cape[i].x, r.cape[i].y - w);
+
+    // Datos vivos que el dibujo puede aprovechar: hacia qué lado mira el
+    // cuerpo, hacia dónde vuela, y si viene de un golpazo. Ya los calcula la
+    // física — usarlos acá no cuesta nada y el personaje deja de ser estático.
+    const facing = r.freezeFlip ?? r.flipSide ?? 1;
+    const look = { x: b.vel.x, y: b.vel.y };
+    const slam = b.slamT > 0 ? (b.slamT / CFG.stuck.slamTime) : 0;
+
+    // ── Skin vectorial (creado en /veditor.html) ─────────────────────────
+    // Si está activado reemplaza al personaje del jugador humano. Va antes
+    // del despacho de héroes: lo que el jugador construyó a mano gana.
+    if (this.vskin && this.vskinOn && (!world || player === world.playerA)) {
+      drawVSkin(ctx, this.vskin, p, b, S, { main: color, dark }, facing);
+      this._fists(ctx, p);
+      this._slamStars(ctx, p, slam);
+      return;
     }
-    ctx.closePath();
-    ctx.fillStyle = dark;
-    ctx.globalAlpha = 0.9;
+
+    // ── Despacho por personaje ────────────────────────────────────────────
+    // Cada héroe dibuja su propio cuerpo y su propia escoba sobre estos
+    // mismos puntos del ragdoll: la física no sabe qué personaje la viste.
+    const hero = CHARACTERS[player.characterId];
+    if (hero) {
+      hero.draw(ctx, this, player, color, dark, world, { facing, look, slam });
+      this._slamStars(ctx, p, slam);
+      return;
+    }
+
+    // Capa (detrás de todo): borde ondulado, degradado y forro interior.
+    // El ancho de cada tramo se afina hacia la punta, y el borde inferior
+    // ondula con el tiempo para que la tela se vea flameando y no rígida.
+    const cape = r.cape;
+    const capePath = (wob) => {
+      ctx.beginPath();
+      ctx.moveTo(cape[0].x, cape[0].y);
+      for (let i = 1; i < cape.length; i++) {
+        const w = (12 - i * 1.5) * S;
+        const f = wob ? Math.sin(this.t * 7 + i * 1.1) * i * 0.5 * S : 0;
+        ctx.lineTo(cape[i].x, cape[i].y + w + f);
+      }
+      for (let i = cape.length - 1; i >= 0; i--) {
+        const w = (12 - i * 1.5) * S;
+        const f = wob ? Math.sin(this.t * 7 + i * 1.1 + 2) * i * 0.5 * S : 0;
+        ctx.lineTo(cape[i].x, cape[i].y - w + f);
+      }
+      ctx.closePath();
+    };
+    capePath(true);
+    ctx.strokeStyle = this._ink;
+    ctx.lineWidth = 3 * S;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    const gc = ctx.createLinearGradient(cape[0].x, cape[0].y,
+                                        cape[cape.length - 1].x, cape[cape.length - 1].y);
+    gc.addColorStop(0, this._shade(dark, 22));
+    gc.addColorStop(1, this._shade(dark, -30));
+    capePath(true);
+    ctx.fillStyle = gc;
+    ctx.globalAlpha = 0.95;
     ctx.fill();
+    ctx.globalAlpha = 1;
+    // Forro: una franja central más clara sugiere el interior de la capa
+    ctx.strokeStyle = this._shade(dark, 34);
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 3.4 * S;
+    ctx.beginPath();
+    ctx.moveTo(cape[0].x, cape[0].y);
+    for (let i = 1; i < cape.length; i++) ctx.lineTo(cape[i].x, cape[i].y);
+    ctx.stroke();
     ctx.globalAlpha = 1;
 
     // Pierna trasera (más oscura → profundidad)
@@ -595,19 +803,145 @@ export class Renderer {
     // Pierna delantera
     this._limb(ctx, p.pelvis, p.kneeF, p.footF, 10 * S, dark);
 
-    // Torso (túnica): trapecio pelvis→pecho
+    // Torso (túnica)
     this._torso(ctx, p.pelvis, p.chest, color, dark);
 
     // Brazo delantero
     this._limbSeg(ctx, p.chest, p.handF, 9 * S, color);
 
-    // Manos (siempre en el palo)
-    ctx.fillStyle = CFG.colors.skin;
-    ctx.beginPath(); ctx.arc(p.handF.x, p.handF.y, 5.5 * S, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(p.handB.x, p.handB.y, 5 * S, 0, 7); ctx.fill();
+    // Manos (siempre en el palo): con contorno y un reflejo, para que se
+    // lean como puños cerrados agarrando y no como bolitas sueltas.
+    for (const [h, rad] of [[p.handF, 5.8], [p.handB, 5.2]]) {
+      ctx.fillStyle = this._ink;
+      ctx.beginPath(); ctx.arc(h.x, h.y, rad * S + 1.4 * S, 0, 7); ctx.fill();
+      ctx.fillStyle = CFG.colors.skin;
+      ctx.beginPath(); ctx.arc(h.x, h.y, rad * S, 0, 7); ctx.fill();
+      ctx.fillStyle = this._shade(CFG.colors.skin, 26);
+      ctx.beginPath(); ctx.arc(h.x - 1.4 * S, h.y - 1.6 * S, rad * 0.42 * S, 0, 7); ctx.fill();
+    }
 
-    // Cabeza + sombrero
-    this._head(ctx, p.head, p.chest, color, dark);
+    // Cabeza + sombrero (mirando hacia donde vuela)
+    this._head(ctx, p.head, p.chest, color, dark, facing, look, slam);
+
+    this._slamStars(ctx, p, slam);
+  }
+
+  // ── Confetti de victoria ──────────────────────────────────────────────
+  // Papelitos en espacio de PANTALLA (no de mundo): caen sobre el cartel de
+  // victoria. Se generan al entrar a la pantalla de fin y se reciclan por
+  // arriba mientras dure — la celebración no se agota si el jugador se queda
+  // mirando sus récords.
+  _confetti(ctx, world, W, H) {
+    if (!this.confetti) {
+      this.confetti = [];
+      const cols = ['#ffd76a', '#3fc0ff', '#ffffff', '#7ee8a2', '#ff9d6b'];
+      for (let i = 0; i < 130; i++) {
+        this.confetti.push({
+          x: Math.random() * W,
+          y: -Math.random() * H,              // entran escalonados desde arriba
+          vy: 90 + Math.random() * 160,
+          sway: 20 + Math.random() * 46,      // vaivén lateral
+          ph: Math.random() * 7,
+          rot: Math.random() * 7,
+          vr: (Math.random() * 2 - 1) * 4,
+          w: 5 + Math.random() * 7,
+          h: 3 + Math.random() * 5,
+          col: cols[(Math.random() * cols.length) | 0],
+        });
+      }
+    }
+    const dt = this._dt || 1 / 60;
+    ctx.save();
+    for (const c of this.confetti) {
+      c.y += c.vy * dt;
+      c.rot += c.vr * dt;
+      if (c.y > H + 20) { c.y = -20; c.x = Math.random() * W; }
+      const x = c.x + Math.sin(this.t * 2.2 + c.ph) * c.sway;
+      ctx.save();
+      ctx.translate(x, c.y);
+      ctx.rotate(c.rot);
+      // El "giro 3D" barato: el alto oscila con el tiempo, como si el papel
+      // rotara sobre su eje. Vende volumen sin más geometría.
+      const hh = c.h * Math.abs(Math.sin(this.t * 3 + c.ph));
+      ctx.fillStyle = c.col;
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(-c.w / 2, -hh / 2, c.w, Math.max(1.2, hh));
+      ctx.restore();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Aviso de desafío completado ───────────────────────────────────────
+  // Banner bajo el marcador. De a uno por vez: si se completan dos juntos,
+  // el segundo espera su turno en la cola del world.
+  _challengeToast(ctx, world, W) {
+    if (!this._chT && world.challengeQueue?.length) {
+      this._ch = world.challengeQueue.shift();
+      this._chT = this.t + 4.6;
+    }
+    if (!this._chT) return;
+    if (this.t > this._chT) { this._chT = 0; this._ch = null; return; }
+
+    const c = this._ch;
+    const fade = Math.min(1, (this._chT - this.t) / 0.5, (this.t - (this._chT - 4.6)) * 3);
+    const cx = W / 2, y = 92;
+    const texto = `${c.icono} Desafío completado: ${c.titulo}`;
+    const sub = c.palette ? `Desbloqueaste: ${c.palette.nombre} — elegila en Personajes` : 'Medalla ganada';
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, fade);
+    ctx.textAlign = 'center';
+    const w = 460, h = 58;
+    ctx.fillStyle = 'rgba(20,16,44,0.92)';
+    ctx.strokeStyle = '#ffd76a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(cx - w / 2, y, w, h, 12);
+    ctx.fill();
+    ctx.shadowColor = '#ffd76a';
+    ctx.shadowBlur = 12;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.font = 'bold 18px Georgia, serif';
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillText(texto, cx, y + 24);
+    ctx.font = '13px Georgia, serif';
+    ctx.fillStyle = 'rgba(232,236,255,0.85)';
+    ctx.fillText(sub, cx, y + 44);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  // Estrellitas de aturdimiento girando sobre la cabeza tras un golpazo.
+  // Genérico: lo comparten el mago, los héroes y el skin vectorial.
+  _slamStars(ctx, p, slam) {
+    if (slam <= 0.05) return;
+    ctx.save();
+    ctx.translate(p.head.x, p.head.y - 34 * S);
+    ctx.globalAlpha = Math.min(1, slam * 1.4);
+    ctx.fillStyle = '#ffe57a';
+    for (let i = 0; i < 3; i++) {
+      const a = this.t * 7 + i * (Math.PI * 2 / 3);
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * 15 * S, Math.sin(a) * 5 * S, 2.6 * S, 0, 7);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // Puños genéricos sobre los agarres, con contorno y reflejo. Los usa el
+  // skin vectorial (y quien no quiera dibujar manos propias).
+  _fists(ctx, p) {
+    for (const [h, rad] of [[p.handF, 5.8], [p.handB, 5.2]]) {
+      ctx.fillStyle = this._ink;
+      ctx.beginPath(); ctx.arc(h.x, h.y, rad * S + 1.4 * S, 0, 7); ctx.fill();
+      ctx.fillStyle = CFG.colors.skin;
+      ctx.beginPath(); ctx.arc(h.x, h.y, rad * S, 0, 7); ctx.fill();
+      ctx.fillStyle = this._shade(CFG.colors.skin, 26);
+      ctx.beginPath(); ctx.arc(h.x - 1.4 * S, h.y - 1.6 * S, rad * 0.42 * S, 0, 7); ctx.fill();
+    }
   }
 
   // Colores por equipo. En 2v2 el compañero usa una variante más clara del
@@ -623,6 +957,38 @@ export class Renderer {
 
   // Marca sobre el jugador humano: con cuatro magos en pantalla hay que
   // poder encontrarse de un vistazo.
+  // Anillo pulsante DEBAJO de tu mago. Chico y bien rasante (0.30) a
+  // propósito: rodeando el cuerpo competía con el skin y ensuciaba la lectura;
+  // corrido hacia abajo se lee como la sombra proyectada del mago y el ojo lo
+  // encuentra sin que tape nada. Dos trazos —uno ancho y tenue, uno fino y
+  // brillante— porque un solo trazo o se pierde sobre el césped claro o pesa
+  // demasiado sobre el cielo oscuro.
+  _selfHalo(ctx, pl, color) {
+    const x = pl.broom.pos.x, y = pl.broom.pos.y + 30 * S;
+    const pulse = 0.5 + 0.5 * Math.sin(this.t * 2.6);
+    const r = (34 + pulse * 3) * S;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1, 0.30);
+
+    ctx.globalAlpha = 0.16 + pulse * 0.08;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 8 * S;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, 7);
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.55 + pulse * 0.2;
+    ctx.lineWidth = 2.4 * S;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, 7);
+    ctx.stroke();
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
   _selfMarker(ctx, pl, color) {
     const y = pl.broom.pos.y - 96 * S - Math.sin(this.t * 3) * 5;
     const x = pl.broom.pos.x;
@@ -651,123 +1017,545 @@ export class Renderer {
     return `rgb(${r},${g},${b})`;
   }
 
+  // Contorno oscuro que envuelve toda la silueta. Es el detalle que más
+  // cambia la lectura del personaje: el mapa es un castillo con antorchas y
+  // mucho ruido de color, y sin una línea que separe al mago del fondo la
+  // figura se disuelve a la distancia de juego. Se dibuja como un trazo más
+  // ancho DEBAJO del color, así que no hace falta calcular la silueta real.
+  get _ink() { return 'rgba(16,12,28,0.92)'; }
+
+  // Miembro de dos tramos (muslo + pantorrilla, u hombro + antebrazo) con
+  // grosor decreciente: ancho en la articulación de origen, fino en la punta.
+  // Un trazo de grosor uniforme se lee como un fideo; la conicidad es lo que
+  // da anatomía sin costar un sprite.
   _limb(ctx, a, m, b, w, color) {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = w;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(m.x, m.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-    // botita
-    ctx.fillStyle = '#2b2438';
-    ctx.beginPath(); ctx.arc(b.x, b.y, w * 0.65, 0, 7); ctx.fill();
-  }
 
-  _limbSeg(ctx, a, b, w, color) {
+    // 1) Contorno
+    ctx.strokeStyle = this._ink;
+    ctx.lineWidth = w + 3.2 * S;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y); ctx.lineTo(m.x, m.y); ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+
+    // 2) Tramo grueso (a→m) y fino (m→b): el muslo es más ancho que la
+    //    pantorrilla, y eso solo se puede hacer en dos trazos separados.
     ctx.strokeStyle = color;
     ctx.lineWidth = w;
-    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(m.x, m.y); ctx.stroke();
+    ctx.lineWidth = w * 0.76;
+    ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+
+    // 3) Luz superior: una línea fina y clara sobre el borde de arriba de
+    //    cada tramo simula que la luz viene del cielo, y despega el volumen.
+    ctx.strokeStyle = this._shade(color, 40);
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = Math.max(1, w * 0.22);
+    const off = (p, q, k) => {
+      const dx = q.x - p.x, dy = q.y - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      return { nx: -dy / d * k, ny: dx / d * k };
+    };
+    const o1 = off(a, m, w * 0.3);
     ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
+    ctx.moveTo(a.x + o1.nx, a.y + o1.ny);
+    ctx.lineTo(m.x + o1.nx, m.y + o1.ny);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // 4) Bota: cápsula orientada según el último tramo, con puntera y caña.
+    //    Un círculo se leía como una pelotita pegada al tobillo.
+    const dx = b.x - m.x, dy = b.y - m.y;
+    const ang = Math.atan2(dy, dx);
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(ang);
+    ctx.fillStyle = this._ink;
+    ctx.beginPath();
+    ctx.ellipse(w * 0.12, 0, w * 0.85, w * 0.62, 0, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = '#3a3048';
+    ctx.beginPath();
+    ctx.ellipse(w * 0.06, -w * 0.1, w * 0.66, w * 0.44, 0, 0, 7);
+    ctx.fill();
+    // hebilla
+    ctx.fillStyle = '#c9a04e';
+    ctx.fillRect(-w * 0.1, -w * 0.34, w * 0.3, w * 0.16);
+    ctx.restore();
+  }
+
+  // Miembro de un solo tramo (brazo). Mismo tratamiento: contorno, cuerpo
+  // cónico y luz superior.
+  _limbSeg(ctx, a, b, w, color) {
+    ctx.lineCap = 'round';
+
+    ctx.strokeStyle = this._ink;
+    ctx.lineWidth = w + 3.2 * S;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+
+    // Cónico: se dibuja en dos mitades porque canvas no da grosor variable.
+    const mx = lerp(a.x, b.x, 0.55), my = lerp(a.y, b.y, 0.55);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(mx, my); ctx.stroke();
+    ctx.lineWidth = w * 0.74;
+    ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(b.x, b.y); ctx.stroke();
+
+    // Puño de la manga, donde termina la tela y empieza la mano
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const cx = b.x - dx / d * w * 0.55, cy = b.y - dy / d * w * 0.55;
+    ctx.strokeStyle = this._shade(color, -34);
+    ctx.lineWidth = w * 0.82;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(b.x - dx / d * w * 0.2, b.y - dy / d * w * 0.2);
     ctx.stroke();
   }
 
+  // Túnica del mago. Antes era un trapecio de color plano; ahora tiene
+  // contorno, degradado transversal (luz de un lado, sombra del otro),
+  // pliegues verticales, cuello en V, cinturón con hebilla y un emblema del
+  // equipo en el pecho. Todo se construye sobre el eje pelvis→pecho, así que
+  // acompaña al ragdoll sin lógica extra.
   _torso(ctx, pelvis, chest, color, dark) {
     const dx = chest.x - pelvis.x, dy = chest.y - pelvis.y;
     const d = Math.hypot(dx, dy) || 1;
-    const nx = -dy / d, ny = dx / d;
-    ctx.beginPath();
-    ctx.moveTo(chest.x + nx * 10 * S, chest.y + ny * 10 * S);
-    ctx.lineTo(chest.x - nx * 10 * S, chest.y - ny * 10 * S);
-    // faldón acampanado en la pelvis
-    ctx.lineTo(pelvis.x - nx * 15 * S, pelvis.y - ny * 15 * S);
-    ctx.lineTo(pelvis.x + nx * 15 * S, pelvis.y + ny * 15 * S);
-    ctx.closePath();
-    ctx.fillStyle = color;
-    ctx.fill();
-    // cinturón
-    ctx.strokeStyle = dark;
-    ctx.lineWidth = 4 * S;
-    ctx.beginPath();
-    const bx = lerp(pelvis.x, chest.x, 0.25), by = lerp(pelvis.y, chest.y, 0.25);
-    ctx.moveTo(bx + nx * 13 * S, by + ny * 13 * S);
-    ctx.lineTo(bx - nx * 13 * S, by - ny * 13 * S);
+    const ux = dx / d, uy = dy / d;          // eje del torso (pelvis→pecho)
+    const nx = -uy, ny = ux;                 // perpendicular
+
+    const HW_CHEST = 10.5 * S;               // medio ancho a la altura del pecho
+    const HW_HIP = 16 * S;                   // faldón acampanado
+    const P = (alongFrac, side, extra = 0) => {
+      const bx = lerp(pelvis.x, chest.x, alongFrac);
+      const by = lerp(pelvis.y, chest.y, alongFrac);
+      const hw = lerp(HW_HIP, HW_CHEST, alongFrac) + extra;
+      return { x: bx + nx * hw * side, y: by + ny * hw * side };
+    };
+
+    // Silueta de la túnica, con el bajo del faldón ligeramente abierto
+    const outline = () => {
+      const a = P(1, 1), b = P(1, -1);
+      const c = P(0, -1, 2 * S), e = P(0, 1, 2 * S);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y);
+      // borde inferior con una leve curva: la tela cuelga, no corta recto
+      const midLow = { x: lerp(c.x, e.x, 0.5) - ux * 3 * S,
+                       y: lerp(c.y, e.y, 0.5) - uy * 3 * S };
+      ctx.quadraticCurveTo(midLow.x, midLow.y, e.x, e.y);
+      ctx.closePath();
+    };
+
+    // 1) Contorno
+    outline();
+    ctx.strokeStyle = this._ink;
+    ctx.lineWidth = 3.4 * S;
+    ctx.lineJoin = 'round';
     ctx.stroke();
+
+    // 2) Relleno con degradado perpendicular al torso: un lado recibe luz,
+    //    el otro queda en sombra. Es lo que le da cilindro al cuerpo.
+    const g = ctx.createLinearGradient(
+      chest.x + nx * HW_CHEST, chest.y + ny * HW_CHEST,
+      chest.x - nx * HW_CHEST, chest.y - ny * HW_CHEST,
+    );
+    g.addColorStop(0, this._shade(color, 30));
+    g.addColorStop(0.55, color);
+    g.addColorStop(1, this._shade(color, -42));
+    outline();
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // 3) Pliegues del faldón: tres líneas suaves que nacen del cinturón y
+    //    caen hasta el borde. Sin esto la túnica se lee como cartón.
+    ctx.strokeStyle = this._shade(color, -55);
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = 1.6 * S;
+    for (const s of [-0.55, 0, 0.55]) {
+      const top = P(0.42, s);
+      const bot = P(0.02, s * 1.15);
+      ctx.beginPath();
+      ctx.moveTo(top.x, top.y);
+      ctx.lineTo(bot.x, bot.y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // 4) Cuello en V, en el tono oscuro del equipo
+    const nA = P(0.95, 0.5), nB = P(0.95, -0.5);
+    const nC = { x: lerp(pelvis.x, chest.x, 0.72), y: lerp(pelvis.y, chest.y, 0.72) };
+    ctx.beginPath();
+    ctx.moveTo(nA.x, nA.y);
+    ctx.lineTo(nC.x, nC.y);
+    ctx.lineTo(nB.x, nB.y);
+    ctx.closePath();
+    ctx.fillStyle = this._shade(dark, -10);
+    ctx.fill();
+
+    // 5) Cinturón + hebilla dorada
+    const bx = lerp(pelvis.x, chest.x, 0.3), by = lerp(pelvis.y, chest.y, 0.3);
+    const bhw = lerp(HW_HIP, HW_CHEST, 0.3) + 1.5 * S;
+    ctx.strokeStyle = this._ink;
+    ctx.lineWidth = 6.4 * S;
+    ctx.beginPath();
+    ctx.moveTo(bx + nx * bhw, by + ny * bhw);
+    ctx.lineTo(bx - nx * bhw, by - ny * bhw);
+    ctx.stroke();
+    ctx.strokeStyle = '#4a3b2a';
+    ctx.lineWidth = 4.6 * S;
+    ctx.beginPath();
+    ctx.moveTo(bx + nx * bhw, by + ny * bhw);
+    ctx.lineTo(bx - nx * bhw, by - ny * bhw);
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(Math.atan2(uy, ux));
+    ctx.fillStyle = '#e8c25a';
+    ctx.fillRect(-3.2 * S, -3.6 * S, 6.4 * S, 7.2 * S);
+    ctx.fillStyle = '#8a6c22';
+    ctx.fillRect(-1.4 * S, -1.6 * S, 2.8 * S, 3.2 * S);
+    ctx.restore();
+
+    // 6) Emblema en el pecho: rombo claro del color del equipo. Ayuda a
+    //    identificar de qué lado es cada mago en un revoltijo.
+    const ex = lerp(pelvis.x, chest.x, 0.66), ey = lerp(pelvis.y, chest.y, 0.66);
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.rotate(Math.atan2(uy, ux));
+    ctx.fillStyle = this._shade(color, 62);
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(4.4 * S, 0); ctx.lineTo(0, 3.4 * S);
+    ctx.lineTo(-4.4 * S, 0); ctx.lineTo(0, -3.4 * S);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
-  _head(ctx, head, chest, color, dark) {
+  // Cabeza del mago. `facing` (+1/−1) dice hacia qué lado mira, y `look` es
+  // la dirección de vuelo: con eso los ojos siguen el rumbo en vez de quedar
+  // fijos. Los ojos son el detalle más barato del personaje y el que más
+  // hace por él — de golpe hay alguien ahí adentro y no un muñeco.
+  _head(ctx, head, chest, color, dark, facing = 1, look = null, slam = 0) {
     // orientación: vector pecho→cabeza = "arriba" del personaje
     let ux = head.x - chest.x, uy = head.y - chest.y;
     const ul = Math.hypot(ux, uy) || 1;
     ux /= ul; uy /= ul;
     const px = -uy, py = ux; // perpendicular
+    const R = 11 * S;
+    // Hacia adelante en el plano de la cara (el lado al que mira)
+    const fx = px * facing, fy = py * facing;
 
-    // cara
-    ctx.fillStyle = CFG.colors.skin;
-    ctx.beginPath(); ctx.arc(head.x, head.y, 11 * S, 0, 7); ctx.fill();
+    // 1) Contorno de la cabeza
+    ctx.fillStyle = this._ink;
+    ctx.beginPath(); ctx.arc(head.x, head.y, R + 1.6 * S, 0, 7); ctx.fill();
 
-    // barba pequeña
-    ctx.fillStyle = '#ddd6c8';
+    // 2) Cara con degradado: iluminada arriba, en sombra bajo el ala
+    const gf = ctx.createLinearGradient(
+      head.x + ux * R, head.y + uy * R,
+      head.x - ux * R, head.y - uy * R,
+    );
+    gf.addColorStop(0, this._shade(CFG.colors.skin, 18));
+    gf.addColorStop(1, this._shade(CFG.colors.skin, -30));
+    ctx.fillStyle = gf;
+    ctx.beginPath(); ctx.arc(head.x, head.y, R, 0, 7); ctx.fill();
+
+    // 3) Oreja del lado visible
+    ctx.fillStyle = this._shade(CFG.colors.skin, -18);
     ctx.beginPath();
-    ctx.arc(head.x - ux * 6 * S, head.y - uy * 6 * S, 6 * S, 0, 7);
+    ctx.arc(head.x - fx * R * 0.82, head.y - fy * R * 0.82, R * 0.26, 0, 7);
     ctx.fill();
 
-    // sombrero de mago: ala + cono torcido
-    ctx.fillStyle = dark;
+    // 4) Ojos: dos puntos corridos hacia el frente, con el iris desplazado
+    //    hacia el rumbo de vuelo. Aturdido (slam) se dibujan como cruces.
+    const eyeBase = { x: head.x + fx * R * 0.34 + ux * R * 0.12,
+                      y: head.y + fy * R * 0.34 + uy * R * 0.12 };
+    const sep = R * 0.30;
+    const eyes = [
+      { x: eyeBase.x + ux * sep * 0.55 + fx * sep * 0.28,
+        y: eyeBase.y + uy * sep * 0.55 + fy * sep * 0.28 },
+      { x: eyeBase.x - ux * sep * 0.55 + fx * sep * 0.28,
+        y: eyeBase.y - uy * sep * 0.55 + fy * sep * 0.28 },
+    ];
+    if (slam > 0.05) {
+      // Aturdido: los ojos se vuelven cruces. Lee al instante que se golpeó.
+      ctx.strokeStyle = '#2a2136';
+      ctx.lineWidth = 1.5 * S;
+      for (const e of eyes) {
+        const s = R * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(e.x - s, e.y - s); ctx.lineTo(e.x + s, e.y + s);
+        ctx.moveTo(e.x + s, e.y - s); ctx.lineTo(e.x - s, e.y + s);
+        ctx.stroke();
+      }
+    } else {
+      // Iris corrido hacia donde vuela: mirada viva sin animación extra.
+      let lx = 0, ly = 0;
+      if (look) {
+        const ll = Math.hypot(look.x, look.y) || 1;
+        lx = (look.x / ll) * R * 0.12;
+        ly = (look.y / ll) * R * 0.12;
+      }
+      ctx.fillStyle = '#fbf7ef';
+      for (const e of eyes) {
+        ctx.beginPath(); ctx.arc(e.x, e.y, R * 0.20, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = '#241d33';
+      for (const e of eyes) {
+        ctx.beginPath(); ctx.arc(e.x + lx, e.y + ly, R * 0.105, 0, 7); ctx.fill();
+      }
+    }
+
+    // 5) Cejas pobladas de mago viejo, justo sobre los ojos
+    ctx.strokeStyle = '#e6e0d2';
+    ctx.lineWidth = 2.1 * S;
+    ctx.lineCap = 'round';
+    for (const e of eyes) {
+      const bx0 = e.x + ux * R * 0.30 - fx * R * 0.10;
+      const by0 = e.y + uy * R * 0.30 - fy * R * 0.10;
+      ctx.beginPath();
+      ctx.moveTo(bx0, by0);
+      ctx.lineTo(bx0 + fx * R * 0.34, by0 + fy * R * 0.34 + uy * R * 0.04);
+      ctx.stroke();
+    }
+
+    // 6) Barba: tres lóbulos superpuestos en vez de un círculo, con sombra.
+    //    Cuelga hacia "abajo" del personaje y se abre hacia el frente.
+    const beard = (r, alongF, sideF, fill) => {
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.arc(head.x - ux * R * alongF + fx * R * sideF,
+              head.y - uy * R * alongF + fy * R * sideF, r, 0, 7);
+      ctx.fill();
+    };
+    beard(R * 0.62, 0.62, 0.10, this._ink);
+    beard(R * 0.56, 0.60, 0.12, '#e9e3d5');
+    beard(R * 0.40, 0.95, 0.02, '#dcd5c4');
+    beard(R * 0.30, 1.22, -0.06, '#cfc7b4');
+    // bigote
+    ctx.fillStyle = '#efe9dc';
     ctx.beginPath();
-    ctx.ellipse(head.x + ux * 7 * S, head.y + uy * 7 * S, 16 * S, 5 * S, Math.atan2(py, px), 0, 7);
+    ctx.ellipse(head.x - ux * R * 0.22 + fx * R * 0.44,
+                head.y - uy * R * 0.22 + fy * R * 0.44,
+                R * 0.30, R * 0.17, Math.atan2(fy, fx), 0, 7);
     ctx.fill();
+
+    // 7) Sombrero: ala elíptica con contorno, cono curvado que cae hacia
+    //    atrás, banda y hebilla. La punta se dobla: un cono recto se ve
+    //    rígido, y este mago vuela.
+    const brimA = Math.atan2(py, px);
+    ctx.fillStyle = this._ink;
     ctx.beginPath();
-    ctx.moveTo(head.x + (ux * 8 + px * 10) * S, head.y + (uy * 8 + py * 10) * S);
-    ctx.lineTo(head.x + (ux * 8 - px * 10) * S, head.y + (uy * 8 - py * 10) * S);
-    ctx.lineTo(head.x + (ux * 30 - px * 6) * S, head.y + (uy * 30 - py * 6) * S);
-    ctx.closePath();
-    ctx.fillStyle = color;
+    ctx.ellipse(head.x + ux * 7 * S, head.y + uy * 7 * S, 17.4 * S, 6.2 * S, brimA, 0, 7);
     ctx.fill();
-    // banda
-    ctx.strokeStyle = dark;
-    ctx.lineWidth = 3 * S;
+    ctx.fillStyle = this._shade(dark, -6);
     ctx.beginPath();
-    ctx.moveTo(head.x + (ux * 9 + px * 9) * S, head.y + (uy * 9 + py * 9) * S);
-    ctx.lineTo(head.x + (ux * 9 - px * 9) * S, head.y + (uy * 9 - py * 9) * S);
+    ctx.ellipse(head.x + ux * 7 * S, head.y + uy * 7 * S, 16 * S, 5 * S, brimA, 0, 7);
+    ctx.fill();
+
+    // Cono con curva: base ancha, punta desviada hacia atrás y hacia el lado
+    const baseL = { x: head.x + (ux * 8 + px * 10) * S, y: head.y + (uy * 8 + py * 10) * S };
+    const baseR = { x: head.x + (ux * 8 - px * 10) * S, y: head.y + (uy * 8 - py * 10) * S };
+    const tipHat = { x: head.x + (ux * 31 - fx * 13) * S, y: head.y + (uy * 31 - fy * 13) * S };
+    const ctrl   = { x: head.x + (ux * 20 - fx * 2) * S,  y: head.y + (uy * 20 - fy * 2) * S };
+    const hatPath = () => {
+      ctx.beginPath();
+      ctx.moveTo(baseL.x, baseL.y);
+      ctx.lineTo(baseR.x, baseR.y);
+      ctx.quadraticCurveTo(ctrl.x, ctrl.y, tipHat.x, tipHat.y);
+      ctx.quadraticCurveTo(ctrl.x + fx * 6 * S, ctrl.y + fy * 6 * S, baseL.x, baseL.y);
+      ctx.closePath();
+    };
+    hatPath();
+    ctx.strokeStyle = this._ink;
+    ctx.lineWidth = 2.6 * S;
+    ctx.lineJoin = 'round';
     ctx.stroke();
+    const gh = ctx.createLinearGradient(baseL.x, baseL.y, baseR.x, baseR.y);
+    gh.addColorStop(0, this._shade(color, 26));
+    gh.addColorStop(1, this._shade(color, -34));
+    hatPath();
+    ctx.fillStyle = gh;
+    ctx.fill();
+
+    // Banda + hebilla del sombrero
+    ctx.strokeStyle = this._ink;
+    ctx.lineWidth = 4.6 * S;
+    ctx.beginPath();
+    ctx.moveTo(head.x + (ux * 9 + px * 9.4) * S, head.y + (uy * 9 + py * 9.4) * S);
+    ctx.lineTo(head.x + (ux * 9 - px * 9.4) * S, head.y + (uy * 9 - py * 9.4) * S);
+    ctx.stroke();
+    ctx.strokeStyle = this._shade(dark, -22);
+    ctx.lineWidth = 3.2 * S;
+    ctx.beginPath();
+    ctx.moveTo(head.x + (ux * 9 + px * 9.4) * S, head.y + (uy * 9 + py * 9.4) * S);
+    ctx.lineTo(head.x + (ux * 9 - px * 9.4) * S, head.y + (uy * 9 - py * 9.4) * S);
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(head.x + (ux * 9 + fx * 3) * S, head.y + (uy * 9 + fy * 3) * S);
+    ctx.rotate(brimA);
+    ctx.fillStyle = '#e8c25a';
+    ctx.fillRect(-2.4 * S, -2.4 * S, 4.8 * S, 4.8 * S);
+    ctx.restore();
+
+    // 8) Estrellita en el sombrero: guiño mágico, y ayuda a leer la rotación
+    const starX = head.x + (ux * 19 - fx * 4) * S;
+    const starY = head.y + (uy * 19 - fy * 4) * S;
+    ctx.fillStyle = 'rgba(255,240,180,0.9)';
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = brimA + i * Math.PI / 4;
+      const rr = (i % 2 ? 1.1 : 2.8) * S;
+      const X = starX + Math.cos(a) * rr, Y = starY + Math.sin(a) * rr;
+      i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+    }
+    ctx.closePath();
+    ctx.fill();
   }
 
   _broom(ctx, b, player) {
     const tip = b.tip(), tail = b.tail();
     const d = b.dir();
 
-    // palo
-    ctx.strokeStyle = CFG.colors.wood;
-    ctx.lineWidth = 7 * S;
+    // Skin de escoba hecho en /editor: solo para el jugador humano (p1).
+    // Los efectos (resplandor, runas) siguen siendo procedurales.
+    if (this.broomSkin && player?.team === 'p1') {
+      // Mismo lado que el cuerpo: mirando a la izquierda la escoba se dibuja
+      // como espejo (no boca abajo). Durante el giro de 360° el lado queda
+      // congelado (freezeFlip) y la escoba rota continua, sin saltos.
+      const facing = player.rider
+        ? (player.rider.freezeFlip ?? player.rider.flipSide ?? 1)
+        : 1;
+      this.broomSkin.draw(ctx, b, S, facing);
+      this._broomFX(ctx, b, tip, tail, d);
+      return;
+    }
+
+    // ── Escoba con volumen ────────────────────────────────────────────────
+    // El palo dejó de ser una línea plana: contorno, degradado a lo largo,
+    // veta de la madera, empuñadura de cuero con anillos metálicos y una
+    // punta rúnica. Se construye sobre el eje cola→punta, así que rota con
+    // la física sin cálculos extra.
+    const nx = -d.y, ny = d.x;                       // perpendicular al palo
+    const bx0 = tail.x + d.x * 14 * S, by0 = tail.y + d.y * 14 * S;
+
+    // Contorno del palo
     ctx.lineCap = 'round';
+    ctx.strokeStyle = this._ink;
+    ctx.lineWidth = 10 * S;
+    ctx.beginPath(); ctx.moveTo(bx0, by0); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+
+    // Cuerpo con degradado longitudinal (más claro cerca de la punta)
+    const gw = ctx.createLinearGradient(bx0, by0, tip.x, tip.y);
+    gw.addColorStop(0, CFG.colors.woodDark);
+    gw.addColorStop(0.5, CFG.colors.wood);
+    gw.addColorStop(1, this._shade(CFG.colors.wood, 24));
+    ctx.strokeStyle = gw;
+    ctx.lineWidth = 7 * S;
+    ctx.beginPath(); ctx.moveTo(bx0, by0); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+
+    // Brillo especular en el borde superior: el palo se ve redondo
+    ctx.strokeStyle = this._shade(CFG.colors.wood, 58);
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 1.8 * S;
     ctx.beginPath();
-    ctx.moveTo(tail.x + d.x * 14 * S, tail.y + d.y * 14 * S);
-    ctx.lineTo(tip.x, tip.y);
+    ctx.moveTo(bx0 + nx * 1.9 * S, by0 + ny * 1.9 * S);
+    ctx.lineTo(tip.x + nx * 1.9 * S, tip.y + ny * 1.9 * S);
     ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Veta de la madera: tres marcas cortas repartidas a lo largo
     ctx.strokeStyle = CFG.colors.woodDark;
-    ctx.lineWidth = 3 * S;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1.1 * S;
+    for (const f of [0.32, 0.55, 0.78]) {
+      const vx = lerp(bx0, tip.x, f), vy = lerp(by0, tip.y, f);
+      ctx.beginPath();
+      ctx.moveTo(vx - d.x * 4 * S + nx * 0.8 * S, vy - d.y * 4 * S + ny * 0.8 * S);
+      ctx.lineTo(vx + d.x * 4 * S - nx * 0.8 * S, vy + d.y * 4 * S - ny * 0.8 * S);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // Empuñadura de cuero donde van las manos, con dos anillos metálicos
+    const gripA = 0.30, gripB = 0.56;
+    const gax = lerp(bx0, tip.x, gripA), gay = lerp(by0, tip.y, gripA);
+    const gbx = lerp(bx0, tip.x, gripB), gby = lerp(by0, tip.y, gripB);
+    ctx.strokeStyle = '#4a3524';
+    ctx.lineWidth = 8 * S;
+    ctx.beginPath(); ctx.moveTo(gax, gay); ctx.lineTo(gbx, gby); ctx.stroke();
+    // trenzado del cuero
+    ctx.strokeStyle = '#31210f';
+    ctx.lineWidth = 1 * S;
+    for (let i = 0; i <= 6; i++) {
+      const f = gripA + (gripB - gripA) * (i / 6);
+      const hx = lerp(bx0, tip.x, f), hy = lerp(by0, tip.y, f);
+      ctx.beginPath();
+      ctx.moveTo(hx + nx * 3.6 * S, hy + ny * 3.6 * S);
+      ctx.lineTo(hx - nx * 3.6 * S - d.x * 2 * S, hy - ny * 3.6 * S - d.y * 2 * S);
+      ctx.stroke();
+    }
+    // anillos dorados en los extremos del agarre
+    ctx.strokeStyle = '#c9a04e';
+    ctx.lineWidth = 9 * S;
+    for (const [rx, ry] of [[gax, gay], [gbx, gby]]) {
+      ctx.beginPath();
+      ctx.moveTo(rx - d.x * 0.9 * S, ry - d.y * 0.9 * S);
+      ctx.lineTo(rx + d.x * 0.9 * S, ry + d.y * 0.9 * S);
+      ctx.stroke();
+    }
+
+    // Punta rúnica: un engarce dorado con una gema que late con el impulso
+    const glow = 0.35 + b.thrustPower * 0.5 + (b.boostPower || 0) * 0.5;
+    ctx.fillStyle = '#c9a04e';
     ctx.beginPath();
-    ctx.moveTo(tail.x + d.x * 14 * S, tail.y + d.y * 14 * S - 2 * S);
-    ctx.lineTo(tip.x, tip.y - 2 * S);
+    ctx.arc(tip.x - d.x * 2 * S, tip.y - d.y * 2 * S, 4.2 * S, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = `rgba(150,225,255,${Math.min(1, glow)})`;
+    ctx.shadowColor = '#7ad4ff';
+    ctx.shadowBlur = 10 * glow;
+    ctx.beginPath();
+    ctx.arc(tip.x - d.x * 2 * S, tip.y - d.y * 2 * S, 2.4 * S, 0, 7);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // ── Ramas de la cola ──────────────────────────────────────────────────
+    // Abanico en tres capas (oscura al fondo, clara adelante) con largos
+    // irregulares: antes eran 7 líneas idénticas y se leía como un peine.
+    const jitter = b.thrustPower * 2.5;
+    const bxr = tail.x + d.x * 16 * S, byr = tail.y + d.y * 16 * S;
+    // atadura de la escoba
+    ctx.strokeStyle = '#5a3f22';
+    ctx.lineWidth = 7 * S;
+    ctx.beginPath();
+    ctx.moveTo(bxr - d.x * 3 * S, byr - d.y * 3 * S);
+    ctx.lineTo(bxr + d.x * 3 * S, byr + d.y * 3 * S);
     ctx.stroke();
 
-    // ramas (abanico en la cola, tiemblan al acelerar)
-    const jitter = b.thrustPower * 2.5;
-    ctx.strokeStyle = CFG.colors.straw;
-    ctx.lineWidth = 3 * S;
-    for (let i = -3; i <= 3; i++) {
-      const a = b.angle + Math.PI + i * 0.13 + Math.sin(this.t * 30 + i * 5) * 0.03 * jitter;
-      const len = (30 - Math.abs(i) * 2) * S;
-      const bx = tail.x + d.x * 16 * S, by = tail.y + d.y * 16 * S;
-      ctx.beginPath();
-      ctx.moveTo(bx, by);
-      ctx.lineTo(bx + Math.cos(a) * len, by + Math.sin(a) * len);
-      ctx.stroke();
+    const capas = [
+      { col: '#6d5324', w: 3.4, mul: 1.06, off: 0.06 },   // fondo, oscuro
+      { col: CFG.colors.straw, w: 2.8, mul: 1.0, off: 0 },
+      { col: '#e0c37a', w: 1.7, mul: 0.9, off: -0.05 },   // frente, claro
+    ];
+    for (const capa of capas) {
+      ctx.strokeStyle = capa.col;
+      ctx.lineWidth = capa.w * S;
+      for (let i = -4; i <= 4; i++) {
+        const a = b.angle + Math.PI + i * 0.115 + capa.off
+                + Math.sin(this.t * 30 + i * 5) * 0.03 * jitter;
+        // Largo irregular: un poco de variación fija por rama (no aleatoria
+        // por frame, si no titilaría).
+        const wob = 1 + Math.sin(i * 2.7) * 0.13;
+        const len = (32 - Math.abs(i) * 2.4) * wob * capa.mul * S;
+        ctx.beginPath();
+        ctx.moveTo(bxr, byr);
+        ctx.lineTo(bxr + Math.cos(a) * len, byr + Math.sin(a) * len);
+        ctx.stroke();
+      }
     }
     // atadura
     ctx.strokeStyle = '#7a4a20';
@@ -777,6 +1565,11 @@ export class Renderer {
     ctx.lineTo(tail.x + (d.x * 12 + d.y * 6) * S, tail.y + (d.y * 12 - d.x * 6) * S);
     ctx.stroke();
 
+    this._broomFX(ctx, b, tip, tail, d);
+  }
+
+  // Efectos de la escoba, comunes al dibujo geometrico y al skin de sprites.
+  _broomFX(ctx, b, tip, tail, d) {
     // resplandor de propulsión
     if (b.thrustPower > 0.05) {
       const rad = (42 + b.boostPower * 40) * S;
@@ -830,80 +1623,217 @@ export class Renderer {
       ctx.restore();
       ctx.globalAlpha = 1;
     }
+
   }
 
   // ---------- PELOTA ----------
+  // Estela de la pelota, dibujada como CINTA continua.
+  //
+  // Antes era una fila de círculos superpuestos: a alta velocidad las muestras
+  // quedan lejos entre sí y se veían como un collar de perlas separadas, no
+  // como un rastro. Ahora se arma un polígono que recorre el camino por un
+  // lado y vuelve por el otro, con ancho proporcional a la antigüedad — la
+  // silueta clásica de cometa, que se lee continua a cualquier velocidad.
   _ballTrail(ctx, ball) {
-    if (ball.trail.length < 2) return;
-    for (let i = 1; i < ball.trail.length; i++) {
-      const t = i / ball.trail.length;
-      const a = ball.trail[i];
-      const f = a.fire || 0;
-      if (f > 0) {
-        // Cometa: la cola vieja es roja y humosa, la parte nueva blanca. Se
-        // dibuja más ancha que la estela normal para que la pelota inflamada
-        // se distinga desde el otro arco.
-        ctx.globalAlpha = t * (0.2 + 0.55 * f);
-        ctx.fillStyle = t > 0.72 ? '#fff3b0' : (t > 0.4 ? '#ff9c2a' : '#e03a12');
-        ctx.beginPath();
-        ctx.arc(a.x, a.y, ball.r * t * (0.75 + 0.55 * f), 0, 7);
-        ctx.fill();
-      } else {
-        ctx.globalAlpha = t * 0.25 * Math.min(a.sp / 700, 1);
-        ctx.fillStyle = CFG.colors.ballGlow;
-        ctx.beginPath();
-        ctx.arc(a.x, a.y, ball.r * t * 0.9, 0, 7);
-        ctx.fill();
+    const tr = ball.trail;
+    if (tr.length < 3) return;
+
+    const speedF = Math.min((tr[tr.length - 1].sp || 0) / 900, 1);
+    if (speedF < 0.05 && !(ball.fire > 0)) return;   // quieta: sin estela
+
+    const fire = ball.fire || 0;
+    const maxW = ball.r * (fire > 0 ? 1.15 + fire * 0.5 : 0.92);
+
+    // Normal de cada punto, para poder darle grosor a la cinta
+    const off = (p, k) => {
+      const sp = Math.hypot(p.vx || 0, p.vy || 0) || 1;
+      return { nx: -(p.vy || 0) / sp * k, ny: (p.vx || 0) / sp * k };
+    };
+
+    // Dos capas: una ancha y tenue (el halo del rastro) y una fina y brillante
+    // (el núcleo). Juntas dan volumen sin necesidad de blur.
+    for (const layer of [{ w: 1, a: fire > 0 ? 0.42 : 0.34 },
+                         { w: 0.42, a: fire > 0 ? 0.75 : 0.70 }]) {
+      ctx.beginPath();
+      // Ida por un lado
+      for (let i = 0; i < tr.length; i++) {
+        const t = i / (tr.length - 1);            // 0 = más viejo, 1 = actual
+        const p = tr[i];
+        const w = maxW * layer.w * Math.pow(t, 1.35) * (0.45 + speedF * 0.55);
+        const o = off(p, w);
+        if (i === 0) ctx.moveTo(p.x + o.nx, p.y + o.ny);
+        else ctx.lineTo(p.x + o.nx, p.y + o.ny);
       }
+      // Vuelta por el otro
+      for (let i = tr.length - 1; i >= 0; i--) {
+        const t = i / (tr.length - 1);
+        const p = tr[i];
+        const w = maxW * layer.w * Math.pow(t, 1.35) * (0.45 + speedF * 0.55);
+        const o = off(p, w);
+        ctx.lineTo(p.x - o.nx, p.y - o.ny);
+      }
+      ctx.closePath();
+
+      // Degradado a lo largo del vuelo: se apaga hacia la cola
+      const a = tr[0], b = tr[tr.length - 1];
+      const g = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+      if (fire > 0) {
+        g.addColorStop(0,    'rgba(180,30,0,0)');
+        g.addColorStop(0.45, `rgba(224,58,18,${layer.a * 0.55 * fire})`);
+        g.addColorStop(0.8,  `rgba(255,156,42,${layer.a * fire})`);
+        g.addColorStop(1,    `rgba(255,243,176,${layer.a * fire})`);
+      } else {
+        g.addColorStop(0,    'rgba(255,240,190,0)');
+        g.addColorStop(0.55, `rgba(255,236,170,${layer.a * 0.5 * speedF})`);
+        g.addColorStop(1,    `rgba(255,250,222,${layer.a * speedF})`);
+      }
+      ctx.fillStyle = g;
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
 
+  // El orbe. No es una pelota de cuero: es una esfera de energía encantada,
+  // así que el dibujo apila capas de luz en vez de sombrear un volumen sólido.
+  //
+  // De afuera hacia adentro: halo lejano → halo cercano latiendo → cuerpo con
+  // degradado → runas que giran → brillo especular → destello central. La
+  // suma es lo que la hace verse encendida en vez de pintada.
   _ball(ctx, ball) {
     const r = ball.r * ball.scale;
     if (r < 1) return;
+
+    const f = ball.fire || 0;
+    const sp = Math.hypot(ball.vel?.x || 0, ball.vel?.y || 0);
+    const speedF = Math.min(sp / 900, 1);
+
     ctx.save();
     ctx.translate(ball.pos.x, ball.pos.y);
 
-    const f = ball.fire || 0;
+    // ── Estiramiento por velocidad ──────────────────────────────────────
+    // A gran velocidad el orbe se alarga en su dirección de vuelo y se
+    // adelgaza de costado (volumen constante). Es el truco de animación que
+    // hace que un objeto rápido se lea fluido en vez de saltar entre frames.
+    // Moderado a propósito: pasado de 1.2 el orbe deja de leerse como esfera
+    // y se ve como un óvalo aplastado.
+    const stretch = 1 + speedF * 0.20;
+    const squash  = 1 - speedF * 0.09;
+    const flyAng  = sp > 1 ? Math.atan2(ball.vel.y, ball.vel.x) : 0;
 
-    // glow — cuando está prendida, el halo es una bola de fuego que late
-    const flick = f > 0 ? 1 + 0.12 * Math.sin(this.t * 26) : 1;
-    const g = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * (2 + f * 1.4) * flick);
+    // ── Halos ───────────────────────────────────────────────────────────
+    // Dos pulsos de distinta frecuencia: uno lento de fondo y uno rápido
+    // encima. Al no ser múltiplos, la luz nunca repite el mismo patrón y se
+    // percibe viva en vez de parpadeante.
+    const pulseSlow = 1 + 0.06 * Math.sin(this.t * 2.1);
+    const pulseFast = f > 0 ? 1 + 0.13 * Math.sin(this.t * 26)
+                            : 1 + 0.05 * Math.sin(this.t * 7.3);
+    const haloR = r * (2.5 + f * 1.5 + speedF * 0.6) * pulseSlow * pulseFast;
+
+    ctx.save();
+    ctx.rotate(flyAng);
+    ctx.scale(stretch, squash);
+    ctx.rotate(-flyAng);
+
+    // Halo lejano: define cuánta luz derrama en la escena
+    const gFar = ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, haloR);
     if (f > 0) {
-      g.addColorStop(0, `rgba(255,225,140,${0.55 + f * 0.35})`);
-      g.addColorStop(0.45, `rgba(255,130,30,${0.35 * f + 0.1})`);
-      g.addColorStop(1, 'rgba(180,40,0,0)');
+      gFar.addColorStop(0,    `rgba(255,214,120,${0.34 + f * 0.24})`);
+      gFar.addColorStop(0.38, `rgba(255,120,26,${0.22 * f + 0.06})`);
+      gFar.addColorStop(1,    'rgba(150,32,0,0)');
     } else {
-      g.addColorStop(0, CFG.colors.ballGlow);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
+      gFar.addColorStop(0,    `rgba(255,240,190,${0.30 + speedF * 0.16})`);
+      gFar.addColorStop(0.42, `rgba(255,224,140,${0.14 + speedF * 0.10})`);
+      gFar.addColorStop(1,    'rgba(255,210,110,0)');
     }
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(0, 0, r * (2 + f * 1.4) * flick, 0, 7); ctx.fill();
+    ctx.fillStyle = gFar;
+    ctx.beginPath(); ctx.arc(0, 0, haloR, 0, 7); ctx.fill();
 
-    ctx.rotate(ball.rot);
-    // cuerpo — al rojo vivo mientras arde
-    const bg = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.15, 0, 0, r);
+    // Halo cercano: el borde luminoso pegado al cuerpo, más saturado
+    const nearR = r * (1.5 + f * 0.4) * pulseFast;
+    const gNear = ctx.createRadialGradient(0, 0, r * 0.7, 0, 0, nearR);
     if (f > 0) {
-      bg.addColorStop(0, '#fffbe8');
-      bg.addColorStop(0.55, f > 0.5 ? '#ffb43c' : '#f0c98a');
-      bg.addColorStop(1, f > 0.5 ? '#d8420f' : '#a8763c');
+      gNear.addColorStop(0, `rgba(255,244,206,${0.5 + f * 0.3})`);
+      gNear.addColorStop(1, 'rgba(255,140,30,0)');
     } else {
-      bg.addColorStop(0, '#fdf8e8');
-      bg.addColorStop(0.6, CFG.colors.ball);
-      bg.addColorStop(1, '#b3a67e');
+      gNear.addColorStop(0, `rgba(255,250,220,${0.42 + speedF * 0.2})`);
+      gNear.addColorStop(1, 'rgba(255,228,150,0)');
+    }
+    ctx.fillStyle = gNear;
+    ctx.beginPath(); ctx.arc(0, 0, nearR, 0, 7); ctx.fill();
+    ctx.restore();
+
+    // ── Cuerpo ──────────────────────────────────────────────────────────
+    ctx.save();
+    ctx.rotate(flyAng);
+    ctx.scale(stretch, squash);
+    ctx.rotate(-flyAng + ball.rot);
+
+    const bg = ctx.createRadialGradient(-r * 0.34, -r * 0.38, r * 0.1, 0, 0, r);
+    if (f > 0) {
+      bg.addColorStop(0,    '#fffdf2');
+      bg.addColorStop(0.42, '#ffe9a8');
+      bg.addColorStop(0.72, f > 0.5 ? '#ffb43c' : '#f0c98a');
+      bg.addColorStop(1,    f > 0.5 ? '#d8420f' : '#a8763c');
+    } else {
+      bg.addColorStop(0,    '#fffef7');
+      bg.addColorStop(0.38, '#fdf3d4');
+      bg.addColorStop(0.75, CFG.colors.ball);
+      bg.addColorStop(1,    '#c2b48a');
     }
     ctx.fillStyle = bg;
     ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
 
-    // runa (marca la rotación)
-    ctx.strokeStyle = f > 0 ? '#7a2408' : '#8a7440';
-    ctx.lineWidth = r * 0.12;
+    // Runas: dos anillos girando en sentidos opuestos. El contrarrotado es lo
+    // que hace legible el giro sin necesidad de una textura.
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = f > 0 ? 'rgba(122,36,8,0.85)' : 'rgba(138,116,64,0.7)';
+    ctx.lineWidth = r * 0.1;
     ctx.beginPath();
-    ctx.arc(0, 0, r * 0.55, 0, 7);
-    ctx.moveTo(-r * 0.55, 0); ctx.lineTo(r * 0.55, 0);
-    ctx.moveTo(0, -r * 0.55); ctx.lineTo(0, r * 0.55);
+    ctx.arc(0, 0, r * 0.58, 0, 7);
     ctx.stroke();
+
+    // Arcos sueltos en el anillo exterior, contrarrotando
+    ctx.save();
+    ctx.rotate(-ball.rot * 1.7);
+    ctx.strokeStyle = f > 0 ? 'rgba(255,236,180,0.75)' : 'rgba(255,248,220,0.6)';
+    ctx.lineWidth = r * 0.085;
+    for (let i = 0; i < 3; i++) {
+      const a0 = (i / 3) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.8, a0, a0 + 0.62);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Cruz interior (lo que ya marcaba la rotación), más sutil
+    ctx.strokeStyle = f > 0 ? 'rgba(122,36,8,0.6)' : 'rgba(138,116,64,0.45)';
+    ctx.lineWidth = r * 0.075;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.4, 0); ctx.lineTo(r * 0.4, 0);
+    ctx.moveTo(0, -r * 0.4); ctx.lineTo(0, r * 0.4);
+    ctx.stroke();
+    ctx.restore();
+
+    // ── Brillo especular ────────────────────────────────────────────────
+    // Va SIN rotar con el cuerpo: una luz reflejada no gira con el objeto, y
+    // que se quede fija es justo lo que vende que la esfera es un volumen.
+    const spec = ctx.createRadialGradient(
+      -r * 0.36, -r * 0.4, 0, -r * 0.36, -r * 0.4, r * 0.55);
+    spec.addColorStop(0, 'rgba(255,255,255,0.9)');
+    spec.addColorStop(0.5, 'rgba(255,255,255,0.25)');
+    spec.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = spec;
+    ctx.beginPath(); ctx.arc(-r * 0.36, -r * 0.4, r * 0.55, 0, 7); ctx.fill();
+
+    // Núcleo: un punto de luz que late fuerte. Es lo que hace que el orbe se
+    // vea "encendido desde adentro" y no simplemente iluminado.
+    const coreA = (f > 0 ? 0.55 : 0.32) + 0.12 * Math.sin(this.t * 4.7);
+    const core = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 0.5);
+    core.addColorStop(0, `rgba(255,255,255,${coreA})`);
+    core.addColorStop(1, 'rgba(255,245,210,0)');
+    ctx.fillStyle = core;
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.5, 0, 7); ctx.fill();
+
     ctx.restore();
   }
 
@@ -1000,6 +1930,8 @@ export class Renderer {
     if (m.state === 'end') {
       ctx.fillStyle = 'rgba(5,4,15,0.72)';
       ctx.fillRect(0, 0, W, H);
+      // Confetti de victoria: detrás de los textos, delante del oscurecido
+      if (m.winner === 'p1' && !world.botsMode) this._confetti(ctx, world, W, H);
       ctx.font = 'bold 92px Georgia, serif';
       if (world.botsMode) {
         ctx.fillStyle = m.winner === 'p1' ? CFG.colors.p1 : CFG.colors.p2;
@@ -1022,22 +1954,188 @@ export class Renderer {
       ctx.globalAlpha = 0.5 + pulse * 0.5;
       ctx.fillText(world.touch?.active ? 'Tocá la pantalla para jugar otra' : 'Click o ENTER para jugar otra', cx, H * 0.36 + 140);
       ctx.globalAlpha = 1;
+
+      // ── Racha y récords ─────────────────────────────────────────────────
+      // La razón para "una más": la racha se ve SIEMPRE al terminar, y los
+      // récords nuevos se celebran. main.js la registró en la transición.
+      const st = world.lastStats;
+      if (st) {
+        ctx.font = '20px Georgia, serif';
+        ctx.fillStyle = 'rgba(210,200,240,0.85)';
+        const linea = st.streak > 0
+          ? `Racha: ${st.streak} 🔥   ·   Mejor racha: ${st.bestStreak}`
+          : `Victorias: ${st.wins} · Derrotas: ${st.losses}   ·   Mejor racha: ${st.bestStreak}`;
+        ctx.fillText(linea, cx, H * 0.36 + 190);
+
+        if (st.newBestStreak || st.newBiggestWin) {
+          ctx.font = 'bold 26px Georgia, serif';
+          ctx.fillStyle = '#ffd76a';
+          ctx.shadowColor = '#ffd76a';
+          ctx.shadowBlur = 14 + 8 * Math.sin(this.t * 6);
+          ctx.fillText(
+            st.newBestStreak ? '🏆 ¡Nueva mejor racha!' : '🏆 ¡Tu victoria más aplastante!',
+            cx, H * 0.36 + 232);
+          ctx.shadowBlur = 0;
+        }
+      }
     }
 
-    // Tutorial progresivo
+    // Tutorial: hints de táctil + lecciones contextuales del coach
     this._hints(ctx, world, W, H);
+    this._coach(ctx, world, W, H);
 
     // Pausa
-    if (world.paused) {
-      ctx.fillStyle = 'rgba(5,4,15,0.6)';
-      ctx.fillRect(0, 0, W, H);
-      ctx.font = 'bold 64px Georgia, serif';
-      ctx.fillStyle = '#fff';
-      ctx.fillText('PAUSA', cx, H * 0.42);
-      ctx.font = '22px Georgia, serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
-      ctx.fillText('P para continuar · R reinicia el partido', cx, H * 0.42 + 60);
+    if (world.paused) this._pauseMenu(ctx, world, W, H, cx);
+
+    // Pantalla de controles: va encima de todo, incluso de la pausa, porque
+    // mientras está abierta es lo único con lo que se puede interactuar.
+    if (world.controlsScreen?.open) this._controlsScreen(ctx, world, W, H, cx);
+  }
+
+  // Cómo se juega: se muestra una sola vez (la primera partida) y después
+  // queda a mano desde el menú de pausa. Da el mapa completo de controles de
+  // entrada; los hints progresivos enseñan después el timing de cada uno.
+  _controlsScreen(ctx, world, W, H, cx) {
+    const cs = world.controlsScreen;
+
+    ctx.fillStyle = 'rgba(4,3,12,0.88)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 44px Georgia, serif';
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = CFG.colors.p1Glow;
+    ctx.shadowBlur = 20;
+    ctx.fillText('CÓMO SE JUEGA', cx, H * 0.20);
+    ctx.shadowBlur = 0;
+
+    const rows = [
+      ['MOUSE',   'Apuntás y movés la escoba'],
+      ['CLICK',   'Mantené y soltá: golpe (más carga = más fuerza)'],
+      ['ESPACIO', 'Dash — tenés 2 cargas'],
+      ['SHIFT',   'Propulsión, gasta energía'],
+      ['ESC',     'Pausa'],
+    ];
+
+    const KEY_W = 118, ROW_H = 44;
+    const listX = cx - 250;
+    let y = H * 0.20 + 52;
+
+    for (const [key, desc] of rows) {
+      // Tecla en una cápsula, para que se lea como tecla y no como texto
+      ctx.beginPath();
+      ctx.roundRect(listX, y, KEY_W, 32, 8);
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120,200,255,0.45)';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 14px Georgia, serif';
+      ctx.fillStyle = CFG.colors.p1;
+      ctx.fillText(key, listX + KEY_W / 2, y + 21);
+
+      ctx.textAlign = 'left';
+      ctx.font = '16px Georgia, serif';
+      ctx.fillStyle = 'rgba(232,230,245,0.82)';
+      ctx.fillText(desc, listX + KEY_W + 18, y + 21);
+
+      y += ROW_H;
     }
+
+    // Botón de cierre
+    const BW = 240, BH = 52;
+    const bx = cx - BW / 2, by = y + 18;
+    const hover = cs.hot === 'cerrar';
+    cs.rects = [{ id: 'cerrar', x: bx, y: by, w: BW, h: BH }];
+
+    ctx.save();
+    if (hover) { ctx.shadowColor = CFG.colors.p1; ctx.shadowBlur = 22; }
+    ctx.beginPath();
+    ctx.roundRect(bx, by, BW, BH, BH / 2);
+    ctx.fillStyle = hover ? CFG.colors.p1 : 'rgba(63,192,255,0.82)';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 18px Georgia, serif';
+    ctx.fillStyle = '#08131c';
+    ctx.fillText('¡A JUGAR!', cx, by + BH / 2 + 6);
+    ctx.restore();
+
+    ctx.textAlign = 'center';
+    ctx.font = '13px Georgia, serif';
+    ctx.fillStyle = 'rgba(232,230,245,0.34)';
+    ctx.fillText('Click o ENTER para empezar', cx, by + BH + 24);
+  }
+
+  // Overlay de pausa: Continuar / Menú principal / Salir. Las zonas se
+  // recalculan cada frame en world.pauseMenu.rects — main.js las usa para el
+  // hit-test del mouse, así el hover y el click quedan sincronizados con lo
+  // que se dibujó, igual que hace menu.js con su propio canvas.
+  _pauseMenu(ctx, world, W, H, cx) {
+    const pm = world.pauseMenu;
+    ctx.fillStyle = 'rgba(5,4,15,0.72)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 56px Georgia, serif';
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = CFG.colors.p1Glow;
+    ctx.shadowBlur = 22;
+    ctx.fillText('PAUSA', cx, H * 0.28);
+    ctx.shadowBlur = 0;
+
+    // 4 botones: se achican un poco respecto de los 3 originales para que la
+    // columna entre completa también en pantallas bajas (~640 px de alto).
+    const BW = 280, BH = 50, GAP = 12;
+    const items = [
+      { id: 'continuar', label: 'Continuar',      color: CFG.colors.p1 },
+      { id: 'controles', label: 'Controles',      color: 'rgba(232,230,245,0.85)' },
+      { id: 'menu',      label: 'Menú principal',  color: 'rgba(232,230,245,0.85)' },
+      { id: 'salir',     label: 'Salir',           color: 'rgba(255,140,140,0.9)' },
+    ];
+    const y0 = H * 0.28 + 44;
+
+    pm.rects = [];
+    items.forEach((it, i) => {
+      const x = cx - BW / 2, y = y0 + i * (BH + GAP);
+      const hover = pm.hot === it.id;
+      pm.rects.push({ id: it.id, x, y, w: BW, h: BH });
+
+      ctx.save();
+      if (hover) { ctx.shadowColor = it.color; ctx.shadowBlur = 22; }
+      ctx.beginPath();
+      ctx.roundRect(x, y, BW, BH, BH / 2);
+      ctx.fillStyle = hover ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.roundRect(x, y, BW, BH, BH / 2);
+      ctx.strokeStyle = hover ? it.color : 'rgba(255,255,255,0.16)';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      ctx.font = 'bold 18px Georgia, serif';
+      ctx.fillStyle = hover ? '#fff' : it.color;
+      ctx.fillText(it.label, cx, y + BH / 2 + 6);
+      ctx.restore();
+    });
+
+    // Aviso si "Salir" no pudo cerrar la pestaña (el navegador lo bloquea si
+    // no fue abierta por script) — se muestra un rato y se apaga solo.
+    if (pm.closeBlockedT > 0) {
+      ctx.font = '15px Georgia, serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.globalAlpha = Math.min(1, pm.closeBlockedT);
+      ctx.fillText('Tu navegador no deja cerrar la pestaña desde acá — cerrala vos con Ctrl+W',
+        cx, y0 + items.length * (BH + GAP) + 8);
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.font = '14px Georgia, serif';
+    ctx.fillStyle = 'rgba(232,230,245,0.34)';
+    ctx.fillText('ESC continúa · R reinicia el partido', cx, H - 26);
   }
 
   durationMinusYa(m) { return m.duration - 0.8; }
@@ -1070,24 +2168,45 @@ export class Renderer {
     ctx.font = '15px Georgia, serif';
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.fillText(world.hintText
-      || 'Mantené ESPACIO y soltá para golpear hacia el cursor  ·  R: reubicar pelota  ·  F3: debug',
+      || 'CLICK y soltá para golpear  ·  ESPACIO dash  ·  SHIFT propulsión  ·  R reubica la pelota',
       cx, H - 26);
   }
 
+  // Hints de TÁCTIL. En escritorio los reemplazó el coach (lecciones
+  // contextuales ancladas, ver _coach); acá queda solo la rama touch, cuyos
+  // controles son otros y sí siguen el esquema viejo de texto abajo.
   _hints(ctx, world, W, H) {
     if (world.botsMode) return;
+    if (world.paused || world.match?.state !== 'play') return;
+
     let text = null;
-    if (world.touch?.active) {
+
+    // ── Eventos del mundo (los enseña una sola vez, en cualquier control) ──
+    // El coach cubre los CONTROLES; esto cubre lo que aparece en la cancha y
+    // no se explica solo: el orbe fugitivo y el umbral del tiro de fuego.
+    // Cada aviso se muestra ~5 s la primera vez que su evento ocurre.
+    if (world.runner?.active && this._hintRunnerUntil === undefined) {
+      this._hintRunnerUntil = this.t + 5.5;
+    }
+    if (this._hintRunnerUntil !== undefined && this.t < this._hintRunnerUntil
+        && world.runner?.active) {
+      text = '✨ ¡El orbe dorado! Atrapalo y tu energía será infinita unos segundos';
+    }
+    const plA = world.playerA;
+    if (!text && plA && plA.energy >= CFG.boost.max * CFG.whip.fireThreshold
+        && this._hintFireUntil === undefined) {
+      this._hintFireUntil = this.t + 5.5;
+    }
+    if (!text && this._hintFireUntil !== undefined && this.t < this._hintFireUntil) {
+      text = '🔥 Media barra llena: tu golpe cargado sale EN LLAMAS';
+    }
+
+    // ── Controles táctiles (el teclado los enseña el coach) ────────────────
+    if (!text && world.touch?.active) {
       const t = world.touch;
       if (!t.hasDir) text = 'Deslizá el dedo del lado izquierdo para apuntar la escoba';
       else if (t.thrustTime < 1.4) text = 'Mantené GAS para acelerar';
       else if (t.hitTime < 0.5) text = 'Mantené GOLPE y soltá para pegarle a la pelota';
-    } else {
-      const inp = world.input;
-      if (inp.mouseMoved < 300) text = 'Mueve el MOUSE para apuntar la escoba';
-      else if (inp.thrustTime < 1.4) text = 'Mantén CLICK IZQUIERDO para acelerar';
-      else if (inp.brakeTime < 0.5) text = 'CLICK DERECHO para frenar (tu cuerpo sigue de largo…)';
-      else if (inp.tuckTime < 0.5) text = 'Mantén ESPACIO para recogerte y girar más rápido';
     }
     if (!text) return;
     ctx.font = '20px Georgia, serif';
@@ -1095,6 +2214,116 @@ export class Renderer {
     const pulse = 0.65 + 0.3 * Math.sin(this.t * 3);
     ctx.fillStyle = `rgba(255,240,200,${pulse})`;
     ctx.fillText(text, W / 2, H - 46);
+  }
+
+  // ---------- COACH ----------
+  // Dibuja la lección activa del coach: una pastilla con la tecla como keycap
+  // y una línea fina hasta su ancla (el mago, la pelota, los rayos del dash,
+  // la barra de energía). El coach decide QUÉ y CUÁNDO (coach.js); acá solo
+  // se resuelve DÓNDE, porque el layout del HUD vive en este archivo.
+  _coachAnchor(anchor, world, W, H) {
+    const cam = world.camera;
+    const toScreen = (p) => ({
+      x: W / 2 + (p.x - cam.x) * cam.zoom,
+      y: H / 2 + (p.y - cam.y) * cam.zoom,
+    });
+    switch (anchor) {
+      case 'ball':   return toScreen(world.ball.pos);
+      case 'player': return toScreen(world.playerA.broom.pos);
+      // Coordenadas del HUD inferior-izquierdo (mismas constantes que _hud):
+      // rayos del dash arriba de la barra, barra de energía abajo.
+      case 'dashHud':   return { x: 20 + 35, y: H - 22 - 30 - 26 };
+      case 'energyHud': return { x: 20 + 95, y: H - 22 - 30 + 11 };
+      default: return { x: W / 2, y: H / 2 };
+    }
+  }
+
+  _coach(ctx, world, W, H) {
+    const coach = world.coach;
+    if (!coach || world.botsMode || world.touch?.active) return;
+    if (world.paused || world.match?.state !== 'play') return;
+
+    // ── ✓ de completado: destello verde sobre el ancla de la lección ──
+    if (coach.flash) {
+      const a = this._coachAnchor(coach.flash.anchor, world, W, H);
+      const k = coach.flash.t / 0.9;              // 1 → 0
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, k * 1.6);
+      ctx.font = 'bold 26px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#6ee7a0';
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = '#8effb8';
+      // sube suavecito mientras se apaga
+      ctx.fillText('✓ ¡Bien!', a.x, a.y - 46 - (1 - k) * 18);
+      ctx.restore();
+    }
+
+    const l = coach.current;
+    if (!l) return;
+
+    const a = this._coachAnchor(l.anchor, world, W, H);
+    // Entrada y salida con fade (rápido al aparecer, el pulso hace el resto)
+    const fadeIn = Math.min(coach.age / 0.35, 1);
+    const pulse = 0.88 + 0.12 * Math.sin(this.t * 3.2);
+
+    // La pastilla flota ARRIBA del ancla; si el ancla está muy arriba en la
+    // pantalla (pelota por el cielo), se pone abajo para no salirse.
+    const above = a.y > 130;
+    const px = Math.max(120, Math.min(W - 120, a.x));
+    const py = above ? a.y - 74 : a.y + 74;
+
+    ctx.save();
+    ctx.globalAlpha = fadeIn * pulse;
+
+    // Línea fina de la pastilla al ancla
+    ctx.strokeStyle = 'rgba(255,240,200,0.45)';
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(px, above ? py + 18 : py - 18);
+    ctx.lineTo(a.x, above ? a.y - 28 : a.y + 28);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Medidas de la pastilla: keycap + texto
+    ctx.font = 'bold 13px Georgia, serif';
+    const keyW = ctx.measureText(l.key).width + 18;
+    ctx.font = '14px Georgia, serif';
+    const textW = ctx.measureText(l.text).width;
+    const padX = 12, gap = 9, h = 36;
+    const w = padX + keyW + gap + textW + padX;
+    const x = px - w / 2, y = py - h / 2;
+
+    // Fondo
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 10);
+    ctx.fillStyle = 'rgba(8,6,22,0.88)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120,200,255,0.5)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    // Keycap (mismo lenguaje visual que la pantalla de controles)
+    ctx.beginPath();
+    ctx.roundRect(x + padX, y + 7, keyW, h - 14, 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120,200,255,0.55)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.font = 'bold 13px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = CFG.colors.p1;
+    ctx.fillText(l.key, x + padX + keyW / 2, y + h / 2 + 4.5);
+
+    // Texto
+    ctx.font = '14px Georgia, serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(240,236,255,0.94)';
+    ctx.fillText(l.text, x + padX + keyW + gap, y + h / 2 + 5);
+
+    ctx.restore();
   }
 
   // ---------- HUD MEDIEVAL ----------
@@ -1183,122 +2412,238 @@ export class Renderer {
   }
 
   // Frasco de energía mágica: se llena con orbes, se vacía con el boost.
+  // Rayo ⚡ dibujado como path manual.
+  // cx,cy = centro; sz = tamaño; lit = cargado; frac = progreso recarga (0..1)
+  _drawBolt(ctx, cx, cy, sz, lit, frac) {
+    const pts = [
+      [ 0.18, -0.50],
+      [-0.04, -0.02],
+      [ 0.22, -0.02],
+      [-0.18,  0.50],
+      [ 0.04,  0.02],
+      [-0.22,  0.02],
+    ];
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    if (!lit && frac > 0) {
+      ctx.save();
+      ctx.beginPath();
+      const fillY = sz * 0.5 - sz * frac;
+      ctx.rect(-sz, fillY, sz * 2, sz - fillY);
+      ctx.clip();
+    }
+
+    if (lit) { ctx.shadowColor = '#ffe040'; ctx.shadowBlur = sz * 0.7; }
+
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0] * sz, pts[0][1] * sz);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0] * sz, pts[i][1] * sz);
+    ctx.closePath();
+
+    if (lit) {
+      const g = ctx.createLinearGradient(0, -sz * 0.5, 0, sz * 0.5);
+      g.addColorStop(0, '#fff066');
+      g.addColorStop(1, '#80e000');
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = sz * 0.07;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = frac > 0 ? 'rgba(120,200,60,0.45)' : 'rgba(255,255,255,0.08)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = sz * 0.06;
+      ctx.stroke();
+    }
+
+    if (!lit && frac > 0) ctx.restore();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
   _energyVial(ctx, world, W, H) {
     const pl = world.playerA;
     if (!pl) return;
+    // En ?bots el humano no controla nada: dibujar su barra, sus rayos y el
+    // anillo de carga sugeriría que se puede jugar, y no responden a nada.
+    if (world.botsMode) return;
     const E = CFG.boost;
-    const frac = clamp(pl.energy / E.max, 0, 1);
-    const pulse = pl.energyPulse || 0;
-    const boosting = pl.broom.boostPower > 0.05;
+    const energy    = clamp(pl.energy / E.max, 0, 1);
+    const boosting  = pl.broom.boostPower > 0.05;
     const unlimited = pl.unlimitedT > 0;
+    const now       = performance.now();
 
-    const vw = 42, vh = 122;
-    const x = 30, y = H - vh - 40;
+    // ── Layout ────────────────────────────────────────────────────────────
+    //   ⚡ ⚡   ESPACIO          ← dash: cargas, arriba
+    //   ▓▓▓▓▓░░  ENERGÍA        ← boost: barra, abajo
+    //
+    // Antes era [⚡] [barra] [⚡]: los rayos abrazaban la barra y todo se leía
+    // como un único medidor. Son dos recursos distintos, con teclas distintas,
+    // así que ahora van separados y cada uno dice cuál es la suya.
+    const BOLT_SZ  = 30;
+    const BOLT_GAP = 8;
+    const BAR_W    = 190, BAR_H = 22;
+    const RADIUS   = BAR_H / 2;
+    const LEFT     = 20;
+    const BAR_Y    = H - BAR_H - 30;
+    const BAR_X    = LEFT;
+    // Fila de rayos, encima de la barra y alineada a su izquierda
+    const boltY    = BAR_Y - 26;
+
+    // El tuning se lee del estado, no se repite acá: duplicarlo hacía que el
+    // HUD mintiera en silencio si alguien ajustaba el dash en main.js.
+    const dashState = world.dashState;
+    const DASH_RECHARGE = dashState?.recharge ?? 4.0;
+    const DASH_MAX = dashState?.maxCharges ?? 2;
 
     ctx.save();
-    // Frasco: cuerpo de vidrio con cuello y tapón, no una barra genérica
-    ctx.beginPath();
-    ctx.moveTo(x + 11, y);
-    ctx.lineTo(x + vw - 11, y);
-    ctx.lineTo(x + vw - 11, y + 16);
-    ctx.quadraticCurveTo(x + vw, y + 26, x + vw, y + 44);
-    ctx.lineTo(x + vw, y + vh - 12);
-    ctx.quadraticCurveTo(x + vw, y + vh, x + vw - 12, y + vh);
-    ctx.lineTo(x + 12, y + vh);
-    ctx.quadraticCurveTo(x, y + vh, x, y + vh - 12);
-    ctx.lineTo(x, y + 44);
-    ctx.quadraticCurveTo(x, y + 26, x + 11, y + 16);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(18,16,34,0.8)';
-    ctx.fill();
 
-    // Líquido mágico, con superficie que ondula
-    ctx.save();
-    ctx.clip();
-    const top = y + vh - (vh - 22) * frac;
-    const glow = boosting ? 1 : 0;
-    const lg = ctx.createLinearGradient(0, top, 0, y + vh);
-    if (unlimited) {           // oro puro mientras dura el premio del fugitivo
-      lg.addColorStop(0, '#fffbe0');
-      lg.addColorStop(1, '#e8a010');
-    } else {
-      lg.addColorStop(0, glow ? '#fff0b0' : '#bdf0ff');
-      lg.addColorStop(1, glow ? '#ff9a3c' : '#2f8fd8');
-    }
-    ctx.fillStyle = lg;
-    ctx.beginPath();
-    ctx.moveTo(x, y + vh);
-    ctx.lineTo(x, top);
-    for (let i = 0; i <= vw; i += 4) {
-      ctx.lineTo(x + i, top + Math.sin(this.t * (boosting ? 12 : 3) + i * 0.22) * (2 + pulse * 3));
-    }
-    ctx.lineTo(x + vw, y + vh);
-    ctx.closePath();
-    ctx.fill();
-    // burbujas
-    for (let i = 0; i < 4; i++) {
-      const bt = (this.t * (boosting ? 1.6 : 0.5) + i * 0.31) % 1;
-      const by = y + vh - bt * (vh - 22) * frac;
-      if (by < top) continue;
-      ctx.fillStyle = 'rgba(255,255,255,0.4)';
-      ctx.beginPath();
-      ctx.arc(x + 10 + ((i * 11) % (vw - 20)), by, 1.8 + (i % 2), 0, 7);
-      ctx.fill();
-    }
-    ctx.restore();
+    // ── Barra ─────────────────────────────────────────────────────────────
+    // Fondo
+    ctx.beginPath(); ctx.roundRect(BAR_X, BAR_Y, BAR_W, BAR_H, RADIUS);
+    ctx.fillStyle = 'rgba(0,0,20,0.65)'; ctx.fill();
 
-    // Vidrio y aros de hierro
-    ctx.strokeStyle = unlimited ? '#ffd76a' : (pulse > 0.05 ? '#ffd76a' : 'rgba(180,175,215,0.8)');
-    ctx.lineWidth = 2 + pulse * 2 + (unlimited ? 2 : 0);
-    if (unlimited) { ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 10 + 6 * Math.sin(this.t * 8); }
+    // Borde: azul neón normal, dorado si energía ilimitada
+    const borderColor = unlimited ? '#ffd76a' : '#00bfff';
+    ctx.beginPath(); ctx.roundRect(BAR_X, BAR_Y, BAR_W, BAR_H, RADIUS);
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth   = 2.2;
+    ctx.shadowColor = borderColor;
+    ctx.shadowBlur  = boosting ? 18 : (unlimited ? 14 : 10);
     ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = 'rgba(120,110,150,0.85)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(x - 1, y + 40); ctx.lineTo(x + vw + 1, y + 40);
-    ctx.stroke();
-    // tapón
-    ctx.fillStyle = '#6b5637';
-    ctx.fillRect(x + 12, y - 8, vw - 24, 9);
+    ctx.shadowBlur  = 0;
 
-    // Etiqueta: mientras dura el premio del fugitivo muestra ∞ y el tiempo
-    // que queda, para poder decidir si conviene gastar todo ya.
-    ctx.textAlign = 'center';
+    // Relleno
+    if (energy > 0) {
+      ctx.save();
+      ctx.beginPath(); ctx.roundRect(BAR_X, BAR_Y, BAR_W, BAR_H, RADIUS); ctx.clip();
+
+      const fillW = BAR_W * energy;
+      const pulse = boosting        ? 0.80 + 0.20 * Math.sin(now / 80)
+                  : unlimited       ? 0.75 + 0.25 * Math.sin(now / 60)
+                  : energy > 0.95   ? 0.88 + 0.12 * Math.sin(now / 150)
+                  : 1;
+
+      const g = ctx.createLinearGradient(BAR_X, BAR_Y, BAR_X, BAR_Y + BAR_H);
+      if (unlimited) {
+        g.addColorStop(0, `rgba(255,248,180,${pulse})`);
+        g.addColorStop(0.5, `rgba(240,180,20,${pulse})`);
+        g.addColorStop(1, `rgba(180,100,0,${pulse})`);
+      } else {
+        g.addColorStop(0,    `rgba(170,255,70,${pulse})`);
+        g.addColorStop(0.45, `rgba(80,220,10,${pulse})`);
+        g.addColorStop(1,    `rgba(35,150,0,${pulse})`);
+      }
+      ctx.fillStyle = g;
+      ctx.fillRect(BAR_X, BAR_Y, fillW, BAR_H);
+
+      // Brillo especular
+      const shine = ctx.createLinearGradient(BAR_X, BAR_Y, BAR_X, BAR_Y + BAR_H * 0.5);
+      shine.addColorStop(0, 'rgba(255,255,255,0.30)');
+      shine.addColorStop(1, 'rgba(255,255,255,0.00)');
+      ctx.fillStyle = shine;
+      ctx.fillRect(BAR_X, BAR_Y, fillW, BAR_H);
+
+      // Glow en el frente del relleno
+      if (energy < 0.99) {
+        ctx.shadowColor = unlimited ? '#ffd76a' : '#60ff10';
+        ctx.shadowBlur  = 14;
+        ctx.fillStyle   = unlimited ? 'rgba(255,210,80,0.65)' : 'rgba(130,255,50,0.65)';
+        ctx.fillRect(BAR_X + fillW - 2, BAR_Y, 3, BAR_H);
+        ctx.shadowBlur  = 0;
+      }
+      ctx.restore();
+    }
+
+    // Etiqueta ilimitada (∞ + tiempo)
     if (unlimited) {
       ctx.font = 'bold 13px Georgia, serif';
+      ctx.textAlign = 'center';
       ctx.fillStyle = '#ffd76a';
-      ctx.fillText(`∞  ${pl.unlimitedT.toFixed(1)}s`, x + vw / 2, y + vh + 17);
-    } else {
-      ctx.font = '11px Georgia, serif';
-      ctx.fillStyle = boosting ? '#ffd76a' : 'rgba(210,200,240,0.55)';
-      ctx.fillText('ENERGÍA', x + vw / 2, y + vh + 16);
+      ctx.fillText(`∞  ${pl.unlimitedT.toFixed(1)}s`, BAR_X + BAR_W / 2, BAR_Y - 7);
     }
 
-    // Runa de habilidad: brilla cuando el golpe está disponible
-    const ready = pl.rider.cooldownT <= 0 && pl.rider.phase !== 'whip';
-    const ax = x + vw / 2, ay = y - 34;
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const a = -Math.PI / 2 + i * Math.PI / 3;
-      const px = ax + Math.cos(a) * 15, py = ay + Math.sin(a) * 15;
-      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    // ── Rayos ⚡ a los lados ──────────────────────────────────────────────
+    // Durante el bloqueo del arranque los dos van apagados aunque las cargas
+    // estén llenas: si se vieran encendidos, apretar Space y que no pase nada
+    // se leería como un bug del juego y no como una regla.
+    const m2 = world.match;
+    const locked = m2?.dashAllowed ? !m2.dashAllowed() && m2.state !== 'end' : false;
+    if (dashState) {
+      // Rayos agrupados a la izquierda, en fila
+      for (let i = 0; i < DASH_MAX; i++) {
+        const bx = LEFT + BOLT_SZ / 2 + i * (BOLT_SZ * 0.62 + BOLT_GAP);
+        const lit = !locked && i < dashState.charges;
+        let frac = 0;
+        if (!lit && !locked && i === dashState.charges) frac = dashState.rechargeT / DASH_RECHARGE;
+        this._drawBolt(ctx, bx, boltY, BOLT_SZ, lit, frac);
+      }
+
+      // Qué tecla usa el dash, al lado de los rayos. Es la mitad del punto de
+      // separarlos: que se vea de un vistazo que ese recurso es de ESPACIO.
+      // `textX` es coordenada ABSOLUTA: el centro del último rayo, más medio
+      // ancho para pasar su borde, más un margen de aire.
+      const lastCx = LEFT + BOLT_SZ / 2 + (DASH_MAX - 1) * (BOLT_SZ * 0.62 + BOLT_GAP);
+      const textX  = lastCx + BOLT_SZ * 0.45 + 12;
+      ctx.font = 'bold 11px Georgia, serif';
+      ctx.textAlign = 'left';
+      // Sombra oscura detrás: el HUD cae sobre el muro claro del castillo (y a
+      // veces sobre una antorcha), donde un gris tenue sin contorno no se lee.
+      ctx.shadowColor = 'rgba(0,0,0,0.9)';
+      ctx.shadowBlur  = 4;
+      ctx.fillStyle = locked ? 'rgba(190,215,255,0.95)' : 'rgba(255,255,255,0.8)';
+
+      if (locked && m2.state === 'play' && m2.dashLockT > 0) {
+        // Durante el bloqueo del saque el texto explica por qué no anda
+        ctx.fillText(`ESPACIO · listo en ${Math.ceil(m2.dashLockT)}s`, textX, boltY + 4);
+      } else if (dashState.charges < DASH_MAX) {
+        // Recargando: cuánto falta para la próxima carga
+        const remaining = DASH_RECHARGE - dashState.rechargeT;
+        ctx.fillText(`ESPACIO · +1 en ${remaining.toFixed(1)}s`, textX, boltY + 4);
+      } else {
+        ctx.fillText('ESPACIO', textX, boltY + 4);
+      }
+      ctx.shadowBlur = 0;
     }
-    ctx.closePath();
-    ctx.fillStyle = ready ? 'rgba(255,215,106,0.22)' : 'rgba(30,28,50,0.75)';
-    ctx.fill();
-    ctx.strokeStyle = ready ? '#ffd76a' : 'rgba(140,132,175,0.6)';
-    ctx.lineWidth = 2;
-    if (ready) {
-      ctx.shadowColor = '#ffd76a';
-      ctx.shadowBlur = 6 + 5 * Math.sin(this.t * 3.5);
+
+    // Etiqueta de la barra: qué recurso es y con qué tecla se gasta. Sin esto
+    // la barra verde es un medidor anónimo que nadie sabe para qué sirve.
+    if (!unlimited) {
+      ctx.font = 'bold 11px Georgia, serif';
+      ctx.textAlign = 'left';
+      ctx.shadowColor = 'rgba(0,0,0,0.9)';
+      ctx.shadowBlur  = 4;
+      ctx.fillStyle = boosting ? 'rgba(170,255,110,1)' : 'rgba(255,255,255,0.8)';
+      ctx.fillText('ENERGÍA · SHIFT', BAR_X + 2, BAR_Y + BAR_H + 14);
+      ctx.shadowBlur = 0;
     }
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.font = 'bold 13px Georgia, serif';
-    ctx.fillStyle = ready ? '#ffd76a' : 'rgba(150,142,185,0.7)';
-    ctx.fillText('⚡'.replace('⚡', 'S'), ax, ay + 1);
+
     ctx.restore();
+  }
+
+  // Anillo de carga del golpe (se dibuja en coordenadas de mundo sobre la escoba)
+  _spinChargeRing(ctx, world) {
+    if (!world.charge || !world.spin) return;
+    const charge = world.charge;
+    const spin   = world.spin;
+    if (!charge.active) return;
+    const b = world.playerA.broom;
+    const cf = clamp(charge.t / 0.7, 0, 1);  // SPIN.chargeTime = 0.7
+    const full = cf >= 0.999;
+    const now  = performance.now();
+    const R    = 46;
+    ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, R, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.strokeStyle = full ? '#fff0b0' : '#ffd76a';
+    ctx.globalAlpha = full ? 0.7 + 0.3 * Math.sin(now / 45) : 0.9;
+    ctx.lineWidth   = 4 + cf * 6;
+    if (full) { ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 16; }
+    ctx.beginPath();
+    ctx.arc(b.pos.x, b.pos.y, R, -Math.PI / 2, -Math.PI / 2 + cf * Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
   }
 
   _rrect(ctx, x, y, w, h, r) {

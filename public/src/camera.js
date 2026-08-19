@@ -35,12 +35,27 @@ export class Camera {
 
   get inIntro() { return this.introT != null && this.introT < CFG.intro.time; }
 
-  // Zoom de referencia: el que mostraría el mapa completo. Ya no se usa
-  // directamente en gameplay, pero sigue siendo la vara con la que se miden
-  // zoomClose/zoomFar (y lo usa la intro).
+  // Zoom de referencia del encuadre de juego.
+  //
+  // Antes esto era min(W/imgW, H/imgH): encajaba la IMAGEN entera en pantalla,
+  // así que cualquier monitor con otra proporción quedaba con bandas negras
+  // enormes (en 1920x720 la cancha era una estampilla en el medio).
+  //
+  // Ahora se combinan dos criterios:
+  //   cover = llenar la pantalla con la imagen, sin bandas (max en vez de min)
+  //   fit   = el zoom máximo que todavía deja ver TODA la zona jugable
+  // y se toma el menor de los dos. Así por defecto se llena la pantalla, pero
+  // si llenarla implicara recortar cancha, se cede un poco y aparece una banda
+  // mínima. Nunca se pierde zona de juego, que es lo que no se puede negociar.
   baseZoom() {
     const W = this.canvas.clientWidth, H = this.canvas.clientHeight;
-    return Math.min(W / CFG.arena.imgW, H / CFG.arena.imgH);
+    const A = CFG.arena;
+    const cover = Math.max(W / A.imgW, H / A.imgH);
+    // Zona jugable + un margen de aire para que nada quede pegado al borde
+    const playW = (A.R - A.L) * 1.04;
+    const playH = (A.B - A.T) * 1.04;
+    const fit = Math.min(W / playW, H / playH);
+    return Math.min(cover, fit);
   }
 
   // focus/ball: {x,y} en mundo. Si no se pasan (escenas viejas/de prueba),
@@ -62,25 +77,14 @@ export class Camera {
       this.y = lerp(f ? f.broom.pos.y : 0, 0, eased);
     } else {
       this.introT = null;
-      if (focus && ball) {
-        const C = CFG.camera;
-        const dist = Math.hypot(ball.x - focus.x, ball.y - focus.y);
-        // 1 = la pelota está encima (zoom cerrado), 0 = lejos (zoom abierto)
-        const closeness = 1 - clamp(
-          (dist - C.closeDist) / (C.farDist - C.closeDist), 0, 1);
-        const zoomTarget = lerp(base * C.zoomFar, base * C.zoomClose, closeness);
-        const targetX = (focus.x + ball.x) / 2;
-        const targetY = (focus.y + ball.y) / 2;
-
-        this.zoom = damp(this.zoom, zoomTarget, C.zoomSpeed, dt);
-        this.x = damp(this.x, targetX, C.followSpeed, dt);
-        this.y = damp(this.y, targetY, C.followSpeed, dt);
-      } else {
-        // Fallback: cámara fija centrada (compat con escenas sin foco)
-        this.zoom = base;
-        this.x = 0;
-        this.y = 0;
-      }
+      // Cámara fija, centrada en la ZONA JUGABLE (no en el centro de la
+      // imagen). La cancha no está centrada verticalmente en el mapa: va de
+      // arena.T a arena.B, cuyo punto medio está bastante por encima de y=0.
+      // Mirando a 0 se recortaba techo de cancha mientras sobraba piso pintado.
+      const cy = (CFG.arena.T + CFG.arena.B) / 2;
+      this.zoom = damp(this.zoom, base, 4, dt);
+      this.x = damp(this.x, 0, 4, dt);
+      this.y = damp(this.y, cy, 4, dt);
     }
 
     // Empuje sutil de velocidad: acerca un pelín cuando se vuela muy rápido.
