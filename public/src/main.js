@@ -391,6 +391,9 @@ const fx = {
     if (strength > 130) {
       particles.impact(x, y, strength);
       sound.impact(strength);
+      // Anillo de choque: solo en impactos fuertes de verdad. Es lo que
+      // separa "la pelota tocó algo" de "la pelota REVENTÓ contra algo".
+      if (strength > 420) renderer?.addShockRing(x, y, strength);
       // El temblor de cámara quedó reservado para la explosión de gol:
       // sacudir la pantalla en cada golpe suelto se sentía excesivo.
     }

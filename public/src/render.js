@@ -77,6 +77,10 @@ export class Renderer {
     world.camera.applyTransform(ctx);
 
     this._map(ctx);
+    // Atmósfera y antorchas van INMEDIATAMENTE sobre el mapa: tiñen el
+    // escenario pintado, no a los personajes que vienen después.
+    this._atmosphere(ctx);
+    this._torchLight(ctx);
     this._portalAura(ctx, -1, world);
     this._portalAura(ctx, 1, world);
     this._shadows(ctx, world);
@@ -107,11 +111,18 @@ export class Renderer {
     // la explosión manda a todos por el aire.
     if (!world.botsMode) this._selfMarker(ctx, world.playerA, cA.main);
     this._ball(ctx, world.ball);
+    // Anillos de choque: en espacio de mundo, encima de todo lo que golpean
+    this._shockRings(ctx);
 
     if (world.debug) this._debug(ctx, world);
     // Anillo de carga del golpe (en espacio de mundo, sobre la escoba del jugador)
     if (world.charge) this._spinChargeRing(ctx, world);
     ctx.restore();
+
+    // Luces y viñeta van en espacio de PANTALLA y antes del HUD: la escena
+    // se ilumina y se enmarca, pero la interfaz queda siempre legible encima.
+    this._lights(ctx, world, W, H);
+    this._vignette(ctx, W, H);
 
     this._aimIndicator(ctx, world);
     // Acá iban las flechas de "arco fuera de cámara" (una por portal) y la del
@@ -285,6 +296,239 @@ export class Renderer {
   // La imagen se dibuja DENTRO de la transformación de mundo, a tamaño
   // natural y centrada en el origen. Por eso el mundo usa píxeles de la
   // imagen: cada muro pintado cae exactamente sobre su límite físico.
+  // ── Atmósfera del fondo ───────────────────────────────────────────────
+  // Profundidad de campo falsa: un velo frío sobre el mapa, más denso arriba
+  // (lejos, el cielo) que abajo (cerca, el césped). El fondo retrocede y los
+  // personajes saltan hacia adelante sin tocarlos. Un solo fillRect.
+  _atmosphere(ctx) {
+    const { imgW, imgH, T, B } = CFG.arena;
+    // Solo la parte ALTA del mapa (cielo y torres lejanas). Medido: cubrir
+    // todo el mapa con velo frío enfriaba el castillo más de lo que las
+    // antorchas lo calentaban — los píxeles cálidos bajaban 9.5 puntos y el
+    // efecto se anulaba solo. La profundidad se gana separando lejos de
+    // cerca, no tiñendo la escena entera.
+    const g = ctx.createLinearGradient(0, -imgH / 2, 0, T + (B - T) * 0.35);
+    g.addColorStop(0, 'rgba(26,32,72,0.40)');
+    g.addColorStop(0.6, 'rgba(22,26,60,0.16)');
+    g.addColorStop(1, 'rgba(18,20,48,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(-imgW / 2, -imgH / 2, imgW, (imgH / 2) + T + (B - T) * 0.35);
+    // Neblina baja sobre el césped: apoya a los personajes en el suelo.
+    const f = ctx.createLinearGradient(0, B - 190, 0, B + 40);
+    f.addColorStop(0, 'rgba(120,150,220,0)');
+    f.addColorStop(1, 'rgba(120,150,220,0.13)');
+    ctx.fillStyle = f;
+    ctx.fillRect(-imgW / 2, B - 190, imgW, 230);
+  }
+
+  // ── Luz de las antorchas ──────────────────────────────────────────────
+  // El castillo tiene antorchas pintadas que hasta ahora no iluminaban nada.
+  // Estos focos las hacen existir: manchas cálidas que titilan sobre el mapa
+  // y bañan a quien pase cerca. Es EL efecto que integra a los personajes
+  // con el escenario en vez de dejarlos flotando encima de una foto.
+  //
+  // Las posiciones son fracciones del ancho jugable, así siguen calzando si
+  // algún día cambia la escala del mapa.
+  _torchLight(ctx) {
+    const { L, R, B, T } = CFG.arena;
+    const w = R - L;
+    if (!this._torches) {
+      // fx: fracción horizontal · fy: altura en el rango T..B · r: radio
+      this._torches = [
+        { fx: 0.10, fy: 0.44, r: 300, ph: 0.0 },
+        { fx: 0.22, fy: 0.30, r: 240, ph: 1.7 },
+        { fx: 0.36, fy: 0.46, r: 270, ph: 3.1 },
+        { fx: 0.50, fy: 0.28, r: 250, ph: 4.6 },
+        { fx: 0.64, fy: 0.46, r: 270, ph: 0.8 },
+        { fx: 0.78, fy: 0.30, r: 240, ph: 2.4 },
+        { fx: 0.90, fy: 0.44, r: 300, ph: 5.2 },
+      ];
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const t of this._torches) {
+      // Titileo: dos senos de distinta frecuencia para que no se note el ciclo
+      const flick = 0.82 + 0.18 * Math.sin(this.t * 5.3 + t.ph)
+                         + 0.06 * Math.sin(this.t * 11.7 + t.ph * 2);
+      const x = L + w * t.fx;
+      const y = T + (B - T) * t.fy;
+      const r = t.r * flick;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(255,186,96,${0.26 * flick})`);
+      g.addColorStop(0.45, `rgba(255,146,62,${0.12 * flick})`);
+      g.addColorStop(1, 'rgba(255,120,40,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, 7);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ── Luces dinámicas ───────────────────────────────────────────────────
+  // El salto grande: en vez de que cada cosa brillante pinte su propio halo
+  // encima de todo, se juntan TODAS las fuentes de luz en un canvas aparte y
+  // se componen de una sola vez con 'screen'. Diferencias que importan:
+  //
+  //  · las luces se SUMAN entre sí (dos orbes cerca iluminan más que uno),
+  //    que es lo que hace que se lea como iluminación y no como calcomanías
+  //  · quedan por DEBAJO del HUD, así la interfaz nunca se lava
+  //  · un solo drawImage compone todo, sin importar cuántas fuentes haya
+  //
+  // El offscreen se dibuja a media resolución: la luz es puro degradado
+  // suave, así que nadie nota la mitad de píxeles y cuesta 4× menos.
+  _lights(ctx, world, W, H) {
+    if (!this._lightCv) {
+      this._lightCv = document.createElement('canvas');
+      this._lightCtx = this._lightCv.getContext('2d');
+    }
+    const SC = 0.5;                       // media resolución
+    const lw = Math.max(2, Math.round(W * SC));
+    const lh = Math.max(2, Math.round(H * SC));
+    if (this._lightCv.width !== lw || this._lightCv.height !== lh) {
+      this._lightCv.width = lw;
+      this._lightCv.height = lh;
+    }
+    const lx = this._lightCtx;
+    lx.setTransform(1, 0, 0, 1, 0, 0);
+    lx.clearRect(0, 0, lw, lh);
+
+    // Mismo encuadre que la escena, escalado a la mitad
+    const cam = world.camera;
+    lx.save();
+    lx.scale(SC, SC);
+    cam.applyTransform(lx);
+    lx.globalCompositeOperation = 'lighter';
+
+    // Un foco = degradado radial que se apaga hacia afuera
+    const luz = (x, y, r, col, a) => {
+      if (a <= 0.01 || r <= 1) return;
+      const g = lx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(${col},${a})`);
+      g.addColorStop(0.4, `rgba(${col},${a * 0.35})`);
+      g.addColorStop(1, `rgba(${col},0)`);
+      lx.fillStyle = g;
+      lx.beginPath();
+      lx.arc(x, y, r, 0, 7);
+      lx.fill();
+    };
+
+    // 1) La pelota: siempre brilla; en llamas, mucho más y en naranja
+    const b = world.ball;
+    if (b) {
+      const sp = Math.min(Math.hypot(b.vel.x, b.vel.y) / 1400, 1);
+      if (b.fire > 0) luz(b.pos.x, b.pos.y, 220 + sp * 90, '255,150,60', 0.5 * Math.min(b.fire, 1));
+      else luz(b.pos.x, b.pos.y, 120 + sp * 110, '255,240,190', 0.16 + sp * 0.2);
+    }
+
+    // 2) Los magos: la punta de la escoba y el aura del impulso
+    for (const pl of (world.players || [])) {
+      if (!pl) continue;
+      const br = pl.broom;
+      const tip = br.tip();
+      const col = pl.team === 'p1' ? '110,200,255' : '255,160,90';
+      const thr = br.thrustPower || 0;
+      const bst = br.boostPower || 0;
+      luz(tip.x, tip.y, 90 + bst * 80, col, 0.14 + thr * 0.12 + bst * 0.24);
+      if (pl.unlimited) luz(br.pos.x, br.pos.y, 190, '255,215,120', 0.24);
+    }
+
+    // 3) Orbes y fugitivo: son fuentes de luz por naturaleza
+    if (world.orbs?.orbs) {
+      for (const o of world.orbs.orbs) {
+        if (o.taken && !o.caught) continue;
+        luz(o.fx ?? o.x, o.y, 95, '150,230,255', 0.20);
+      }
+    }
+    if (world.runner?.active) {
+      luz(world.runner.x, world.runner.y, 175, '255,215,110', 0.34);
+    }
+
+    // 4) Portales: laten con su propio pulso
+    for (const side of [-1, 1]) {
+      const p = portalCenter(side);
+      const col = side < 0 ? '90,180,255' : '255,150,80';
+      luz(p.x, p.y, 250 + Math.sin(this.t * 1.6 + side) * 24, col, 0.17);
+    }
+
+    // 5) La explosión del gol: el momento más luminoso del juego
+    const m = world.match;
+    if (m?.state === 'goal' && m.blasted && m.blastWave < 1) {
+      const p = portalCenter(m.goalSide);
+      const k = 1 - m.blastWave;
+      const col = m.goalScorer === 'p1' ? '120,200,255' : '255,170,90';
+      luz(p.x, p.y, 300 + m.blastWave * CFG.goalBlast.radius * 0.5, col, 0.75 * k);
+    }
+
+    lx.restore();
+
+    // Composición: 'screen' aclara sin quemar — dos luces sumadas nunca
+    // pasan del blanco, que es justo cómo se comporta la luz real.
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.drawImage(this._lightCv, 0, 0, W, H);
+    ctx.restore();
+  }
+
+  // ── Anillos de choque ─────────────────────────────────────────────────
+  // Un aro que nace chico y brillante en el punto exacto del golpe y se
+  // expande apagándose. Cuesta dos arc() y es de lo que más "peso" le da a
+  // un impacto: sin él, un cañonazo contra la pared es igual a un roce.
+  addShockRing(x, y, strength) {
+    if (!this._rings) this._rings = [];
+    if (this._rings.length > 8) this._rings.shift();
+    this._rings.push({
+      x, y, t: 0,
+      life: 0.34,
+      max: 26 + Math.min(strength / 22, 60),
+    });
+  }
+
+  _shockRings(ctx) {
+    const rings = this._rings;
+    if (!rings || !rings.length) return;
+    const dt = this._dt || 1 / 60;
+    ctx.save();
+    for (let i = rings.length - 1; i >= 0; i--) {
+      const r = rings[i];
+      r.t += dt;
+      const k = r.t / r.life;
+      if (k >= 1) { rings.splice(i, 1); continue; }
+      // Radio con desaceleración: rápido al nacer, se frena al desvanecerse
+      const rad = r.max * (1 - Math.pow(1 - k, 2.4));
+      const a = (1 - k) * 0.75;
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = '#fff4d6';
+      ctx.lineWidth = Math.max(0.6, 4.2 * (1 - k)) * S;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, rad, 0, 7);
+      ctx.stroke();
+      // Aro interior más tenue: da grosor sin costar otro path completo
+      ctx.globalAlpha = a * 0.45;
+      ctx.lineWidth = Math.max(0.5, 2 * (1 - k)) * S;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, rad * 0.62, 0, 7);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // ── Viñeta ────────────────────────────────────────────────────────────
+  // El truco más barato que existe para que una imagen se vea compuesta:
+  // oscurecer las esquinas empuja la mirada al centro, donde está el juego.
+  // Va en espacio de PANTALLA (después de restore), no de mundo.
+  _vignette(ctx, W, H) {
+    const g = ctx.createRadialGradient(
+      W / 2, H / 2, Math.min(W, H) * 0.34,
+      W / 2, H / 2, Math.max(W, H) * 0.78);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.65, 'rgba(6,4,16,0.22)');
+    g.addColorStop(1, 'rgba(4,3,12,0.58)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
   _map(ctx) {
     const { imgW, imgH } = CFG.arena;
     if (this.mapReady) {
@@ -568,19 +812,37 @@ export class Renderer {
     this._groundShadow(ctx, world.ball.pos.x, world.ball.pos.y, world.ball.r * 1.05);
   }
 
+  // Sombra de contacto: no es solo "una elipse más chica al subir". Cerca del
+  // piso es CHICA, OSCURA y NÍTIDA (contacto duro); al alejarse se agranda,
+  // se aclara y se difumina. Esa relación —tamaño inverso a la dureza— es lo
+  // que el ojo lee como altura real, y es gratis: el degradado radial cuesta
+  // lo mismo que el relleno plano que había antes.
   _groundShadow(ctx, x, y, baseR) {
     const { T, B } = CFG.arena;
     // 0 = tocando el césped, 1 = arriba del todo
     const h = clamp((B - y) / (B - T), 0, 1);
-    const alpha = 0.5 * Math.pow(1 - h, 1.25);
+    const alpha = 0.55 * Math.pow(1 - h, 1.15);
     if (alpha < 0.012) return;
-    const rx = baseR * (1 + h * 1.5);
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#0a0616';
+    const rx = baseR * (1 + h * 1.6);
+    const ry = rx * 0.26;
+
+    // El núcleo duro se encoge con la altura: a ras del piso la sombra es
+    // casi toda núcleo; arriba, casi toda penumbra.
+    const core = 1 - h * 0.75;
+    const g = ctx.createRadialGradient(x, B, 0, x, B, Math.max(rx, 0.001));
+    g.addColorStop(0, `rgba(10,6,22,${alpha})`);
+    g.addColorStop(core * 0.55, `rgba(10,6,22,${alpha * 0.72})`);
+    g.addColorStop(1, 'rgba(10,6,22,0)');
+
+    ctx.save();
+    ctx.translate(x, B);
+    ctx.scale(1, ry / Math.max(rx, 0.001));
+    ctx.translate(-x, -B);
+    ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.ellipse(x, B, rx, rx * 0.26, 0, 0, 7);
+    ctx.arc(x, B, rx, 0, 7);
     ctx.fill();
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   // ---------- PERSONAJES ----------
