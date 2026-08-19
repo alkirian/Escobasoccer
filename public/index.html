@@ -16,24 +16,80 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css">
   <style>
-    /* Accesos que el menú (canvas) no dibuja: galería y editor */
-    .corner-links {
-      position: fixed; right: 14px; bottom: 12px; z-index: 5;
-      display: flex; gap: 14px;
-      font: 13px system-ui, sans-serif;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0c18; --panel: #141830; --panel2: #1b2040; --line: #2a3157;
+      --text: #e8ecff; --muted: #8a93be; --accent: #ffd54a;
     }
-    .corner-links a {
-      color: #8a93be; text-decoration: none;
-      padding: 6px 10px; border-radius: 8px;
-      transition: .15s;
+    html, body { height: 100%; }
+    body {
+      background:
+        radial-gradient(ellipse at 20% 15%, rgba(63,192,255,.07) 0%, transparent 45%),
+        radial-gradient(ellipse at 80% 80%, rgba(255,138,60,.05) 0%, transparent 45%),
+        radial-gradient(ellipse at 50% -20%, #1a2145 0%, var(--bg) 62%);
+      color: var(--text);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 8px; overflow: hidden;
+      padding: 24px;
     }
-    .corner-links a:hover { color: #e8ecff; background: rgba(255,255,255,.06); }
+    /* Estrellitas flotando (CSS puro, sin canvas) */
+    .star {
+      position: fixed; border-radius: 50%; background: #9fd8ff;
+      pointer-events: none; opacity: .5;
+      animation: drift linear infinite;
+    }
+    @keyframes drift {
+      0%   { transform: translateY(0) scale(1); opacity: .1; }
+      50%  { opacity: .6; }
+      100% { transform: translateY(-48px) scale(.6); opacity: 0; }
+    }
+
+    .logo {
+      font: 700 clamp(38px, 7vw, 64px) Georgia, serif;
+      letter-spacing: .02em; text-align: center;
+      text-shadow: 0 0 34px rgba(63,192,255,.35);
+      margin-bottom: 2px;
+    }
+    .logo .escoba { display: inline-block; animation: fly 2.4s ease-in-out infinite; }
+    @keyframes fly {
+      0%, 100% { transform: translateY(0) rotate(-6deg); }
+      50% { transform: translateY(-9px) rotate(5deg); }
+    }
+    .logo span.v { color: var(--accent); }
+    .tag { color: var(--muted); margin-bottom: 26px; text-align: center; }
+
+    nav { display: flex; flex-direction: column; gap: 12px; width: min(360px, 88vw); }
+    nav a {
+      display: flex; align-items: center; gap: 14px;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 14px; padding: 15px 22px;
+      color: var(--text); text-decoration: none;
+      font: 600 18px system-ui; transition: .15s;
+    }
+    nav a .ico { font-size: 22px; width: 30px; text-align: center; }
+    nav a small { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 12px; }
+    nav a:hover { border-color: #3d4780; transform: translateX(4px); background: var(--panel2); }
+    nav a.primary {
+      background: var(--accent); border-color: var(--accent); color: #1a1400;
+      font-size: 21px; padding: 18px 22px;
+      box-shadow: 0 0 28px rgba(255,213,74,.25);
+    }
+    nav a.primary small { color: #6a5410; }
+    nav a.primary:hover { filter: brightness(1.07); transform: translateX(0) scale(1.02); }
+
+    footer {
+      position: fixed; bottom: 14px; left: 0; right: 0;
+      display: flex; justify-content: center; gap: 18px;
+      color: #55608f; font-size: 12px;
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
   </style>
   <script>
-    // roundRect llegó a Safari 16 / Firefox 112: este relleno cubre versiones
-    // anteriores. Corre antes que cualquier módulo del juego.
+    // roundRect llegó a Safari 16 / Firefox 112 (lo usan las otras páginas
+    // del juego; acá se define temprano por si se navega con caché tibia).
     if (!CanvasRenderingContext2D.prototype.roundRect) {
       CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
         r = Math.min(Math.abs(Array.isArray(r) ? r[0] : (r || 0)), Math.abs(w) / 2, Math.abs(h) / 2);
@@ -49,56 +105,35 @@
   </script>
 </head>
 <body>
-  <canvas id="game"></canvas>
-  <div class="corner-links">
-    <a href="personajes.html">🧙 Personajes</a>
-    <a href="veditor.html">✏️ Crear el mío</a>
-  </div>
-  <div id="rotate-hint">
-    <div class="icon">🧹↻</div>
-    <p>Girá el teléfono — la cancha es horizontal</p>
-  </div>
-  <script type="module">
-    import { Menu } from './src/menu.js';
+  <h1 class="logo"><span class="escoba">🧹</span> Escoba <span class="v">Voladora</span></h1>
+  <p class="tag">Fútbol de magos. Física alocada. Cero reglas elegantes.</p>
 
-    const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
+  <nav>
+    <a class="primary" href="jugar.html"><span class="ico">▶</span> JUGAR <small>1v1 · 2v2 · torneo</small></a>
+    <a href="personajes.html"><span class="ico">🧙</span> Personajes <small>héroes y paletas</small></a>
+    <a href="trofeos.html"><span class="ico">🏆</span> Trofeos <small>desafíos y récords</small></a>
+    <a href="opciones.html"><span class="ico">⚙️</span> Opciones <small>sonido y controles</small></a>
+  </nav>
 
-    function resize() {
-      const dpr = Math.min(devicePixelRatio || 1, 2);
-      canvas.width  = innerWidth  * dpr;
-      canvas.height = innerHeight * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    addEventListener('resize', resize);
-    resize();
+  <footer>
+    <span>v1.1</span>
+    <a href="veditor.html">✏️ Crear mi héroe</a>
+    <a href="https://github.com/alkirian/Escobasoccer" target="_blank" rel="noopener">hecho por alkirian</a>
+  </footer>
 
-    // Al confirmar, el menú entrega la configuración elegida y se pasa por
-    // query string a play.html (la página del partido).
-    const menu = new Menu(canvas, (cfg) => {
-      const q = new URLSearchParams();
-      q.set('mode', cfg.mode);
-      q.set('duration', cfg.opts.duration);
-      q.set('difficulty', cfg.opts.difficulty);
-      if (!cfg.opts.sound) q.set('mute', '1');
-      if (!cfg.opts.orbs)  q.set('noorbs', '1');
-      location.href = `play.html?${q}`;
-    });
-
-    let last = performance.now();
-    function frame(now) {
-      requestAnimationFrame(frame);
-      const dt = Math.min((now - last) / 1000, 0.1);
-      last = now;
-      menu.update(dt);
-      menu.draw();
-    }
-    requestAnimationFrame(frame);
-  </script>
   <script>
-    // PWA: con el service worker el juego queda jugable offline y se puede
-    // "Agregar a pantalla de inicio". Red primero: nunca sirve archivos viejos
-    // teniendo conexion.
+    // Estrellitas de fondo: livianas, sin canvas ni loop propio
+    for (let i = 0; i < 26; i++) {
+      const s = document.createElement('div');
+      s.className = 'star';
+      const size = 1 + Math.random() * 2.5;
+      s.style.cssText = `left:${Math.random() * 100}vw; top:${Math.random() * 100}vh;` +
+        `width:${size}px; height:${size}px;` +
+        `animation-duration:${3 + Math.random() * 5}s;` +
+        `animation-delay:${-Math.random() * 6}s;`;
+      document.body.appendChild(s);
+    }
+    // PWA
     if ('serviceWorker' in navigator) {
       addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
     }

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escoba Voladora — Opciones</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0c18; --panel: #141830; --panel2: #1b2040; --line: #2a3157;
+    --text: #e8ecff; --muted: #8a93be; --accent: #ffd54a; --bad: #ff7a8c;
+  }
+  body {
+    background: radial-gradient(ellipse at 50% -20%, #1a2145 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh; padding: 26px 18px 40px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  h1 { font: 700 28px Georgia, serif; }
+  h1 span { color: var(--accent); }
+  section { width: min(560px, 94vw); }
+  h2 { font: 700 17px Georgia, serif; color: var(--accent); margin-bottom: 8px; }
+
+  .opt {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 13px 16px; margin-bottom: 8px; cursor: pointer; user-select: none;
+  }
+  .opt .ico { font-size: 20px; width: 26px; text-align: center; }
+  .opt .lbl { flex: 1; }
+  .opt .lbl small { display: block; color: var(--muted); font-size: 12px; }
+  .switch {
+    width: 46px; height: 26px; border-radius: 13px; position: relative;
+    background: var(--panel2); border: 1px solid var(--line); transition: .18s;
+    flex: none;
+  }
+  .switch::after {
+    content: ''; position: absolute; top: 2px; left: 3px;
+    width: 19px; height: 19px; border-radius: 50%;
+    background: var(--muted); transition: .18s;
+  }
+  .opt.on .switch { background: #3a3110; border-color: var(--accent); }
+  .opt.on .switch::after { left: 22px; background: var(--accent); }
+
+  .keys { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px 16px; }
+  .krow { display: flex; align-items: center; gap: 14px; padding: 9px 0; border-bottom: 1px solid rgba(42,49,87,.5); }
+  .krow:last-child { border-bottom: none; }
+  .kcap {
+    font: 700 11px system-ui; letter-spacing: .04em;
+    background: var(--panel2); border: 1px solid var(--line);
+    border-bottom-width: 3px; border-radius: 7px;
+    padding: 5px 10px; min-width: 92px; text-align: center; flex: none;
+  }
+  .krow span { color: var(--muted); font-size: 13px; }
+  .tactil { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.6; }
+
+  .danger {
+    background: none; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 10px; padding: 10px 18px; font-size: 13px; cursor: pointer;
+    width: 100%;
+  }
+  .danger:hover { border-color: var(--bad); color: var(--bad); }
+
+  .volver {
+    color: var(--muted); text-decoration: none; font-size: 14px;
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 22px;
+  }
+  .volver:hover { color: var(--text); border-color: #3d4780; }
+</style>
+</head>
+<body>
+  <h1>⚙️ <span>Opciones</span></h1>
+
+  <section>
+    <h2>Juego</h2>
+    <div class="opt" id="optSound">
+      <div class="ico">🔊</div>
+      <div class="lbl">Sonido<small>Efectos, ambiente y música del partido</small></div>
+      <div class="switch"></div>
+    </div>
+    <div class="opt" id="optOrbs">
+      <div class="ico">🔮</div>
+      <div class="lbl">Orbes de energía<small>Los orbes y el fugitivo dorado en la cancha</small></div>
+      <div class="switch"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cómo se juega</h2>
+    <div class="keys">
+      <div class="krow"><div class="kcap">MOUSE</div><span>La escoba sigue tu cursor</span></div>
+      <div class="krow"><div class="kcap">CLICK</div><span>Mantené y soltá: golpe (más carga = más fuerza)</span></div>
+      <div class="krow"><div class="kcap">ESPACIO</div><span>Dash — tenés 2 cargas</span></div>
+      <div class="krow"><div class="kcap">SHIFT</div><span>Propulsión: gasta la energía verde</span></div>
+      <div class="krow"><div class="kcap">CLICK DER.</div><span>Frená y quedate flotando</span></div>
+      <div class="krow"><div class="kcap">ESC / P</div><span>Pausa</span></div>
+    </div>
+    <p class="tactil">📱 En el teléfono: joystick a la izquierda, GAS y GOLPE a la
+    derecha, doble toque en el joystick = dash, GAS sostenido = propulsión,
+    y el botón ⏸ arriba a la derecha pausa.</p>
+  </section>
+
+  <section>
+    <h2>Datos</h2>
+    <button class="danger" id="btnWipe">Borrar todo mi progreso (récords, desafíos, torneo y paletas)</button>
+  </section>
+
+  <a class="volver" href="index.html">← Volver al menú</a>
+
+  <script type="module">
+    // Sonido/orbes viven en la misma clave que usaba el menú viejo, así las
+    // preferencias ya guardadas de quien venía jugando se respetan.
+    const KEY = 'escoba.menu.v1';
+    const load = () => {
+      try { return { sound: true, orbs: true, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
+      catch { return { sound: true, orbs: true }; }
+    };
+    const save = (o) => { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch { /* nada */ } };
+
+    const opts = load();
+    const bind = (id, key) => {
+      const el = document.getElementById(id);
+      const paint = () => el.classList.toggle('on', !!opts[key]);
+      el.onclick = () => { opts[key] = !opts[key]; save(opts); paint(); };
+      paint();
+    };
+    bind('optSound', 'sound');
+    bind('optOrbs', 'orbs');
+
+    // Borrado total: SOLO progreso del juego. No toca los skins del editor
+    // (eso sería destruir trabajo creativo por limpiar un marcador).
+    document.getElementById('btnWipe').onclick = () => {
+      if (!confirm('¿Borrar récords, desafíos, torneo y paletas elegidas?\n(Los personajes del editor NO se tocan.)')) return;
+      for (const k of ['escoba.stats.v1', 'escoba.challenges.v1', 'escoba.torneo.v1',
+                       'escoba.palette.v1', 'escoba.prep.v1']) {
+        try { localStorage.removeItem(k); } catch { /* nada */ }
+      }
+      alert('Listo: progreso borrado. Tu próximo partido vuelve a ser el primero.');
+    };
+  </script>
+</body>
+</html>

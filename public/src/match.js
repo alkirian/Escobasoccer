@@ -12,6 +12,9 @@ export class Match {
     // celebración se ve), pero el reloj no corre y el partido no termina —
     // no hay presión de tiempo ni marcador que defender.
     this.practice = !!opts.practice;
+    // Partido POR GOLES: gana el primero que llega a N. Sin reloj y sin gol
+    // de oro (no puede haber empate: alguien llega primero).
+    this.goalTarget = opts.goalTarget || 0;
     // Único lugar que hace la presentación de cámara: entrar a la cancha.
     this.reset(true, true);
   }
@@ -167,7 +170,8 @@ export class Match {
       case 'play': {
         if (this.dashLockT > 0) this.dashLockT = Math.max(0, this.dashLockT - dt);
         // En práctica el reloj no corre: se juega hasta que el jugador se vaya.
-        if (!this.golden && !this.practice) {
+        // Por goles tampoco: el partido lo termina el marcador, no el tiempo.
+        if (!this.golden && !this.practice && !this.goalTarget) {
           this.timeLeft -= dt;
           if (this.timeLeft <= 0) {
             this.timeLeft = 0;
@@ -215,7 +219,12 @@ export class Match {
         if (this.scorePunch > 0) this.scorePunch = Math.max(0, this.scorePunch - dt * 1.6);
         if (this.goalT <= 0) {
           this.timeScale = 1;
-          if (this.golden || (this.timeLeft <= 0 && this.score.p1 !== this.score.p2)) {
+          // Por goles: alguien llegó a la meta → se terminó.
+          const metaAlcanzada = this.goalTarget > 0
+            && (this.score.p1 >= this.goalTarget || this.score.p2 >= this.goalTarget);
+          if (metaAlcanzada
+              || this.golden
+              || (!this.goalTarget && this.timeLeft <= 0 && this.score.p1 !== this.score.p2)) {
             this._end(world);
           } else {
             this.state = 'countdown';

@@ -86,6 +86,8 @@ export class Renderer {
     world.particles.draw(ctx);
 
     this._ballTrail(ctx, world.ball);
+    // Estela fantasma del dash: detrás de los cuerpos, delante del fondo
+    this._ghostTrail(ctx, world);
     // El humano se dibuja último para que nunca quede tapado por otro cuerpo
     const list = world.players || [world.playerA, world.playerB].filter(Boolean);
     for (const pl of list) {
@@ -824,6 +826,49 @@ export class Renderer {
     this._head(ctx, p.head, p.chest, color, dark, facing, look, slam);
 
     this._slamStars(ctx, p, slam);
+  }
+
+  // ── Estela fantasma del dash ──────────────────────────────────────────
+  // Siluetas simplificadas del mago en posiciones de hace unos frames.
+  // No re-dibuja al héroe completo: un esqueleto de trazos del color del
+  // equipo, desvaneciéndose, lee "velocidad" a una fracción del costo.
+  _ghostTrail(ctx, world) {
+    const gs = world.ghosts;
+    if (!gs || !gs.length) return;
+    const col = this._teamColors(world.playerA).main;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const g of gs) {
+      const p = g.pts;
+      if (!p.pelvis) continue;
+      ctx.globalAlpha = Math.max(0, (g.life / g.max)) * 0.32;
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      // torso
+      ctx.lineWidth = 11 * S;
+      ctx.beginPath();
+      ctx.moveTo(p.pelvis.x, p.pelvis.y); ctx.lineTo(p.chest.x, p.chest.y);
+      ctx.stroke();
+      // piernas
+      ctx.lineWidth = 7 * S;
+      ctx.beginPath();
+      ctx.moveTo(p.pelvis.x, p.pelvis.y); ctx.lineTo(p.kneeF.x, p.kneeF.y); ctx.lineTo(p.footF.x, p.footF.y);
+      ctx.moveTo(p.pelvis.x, p.pelvis.y); ctx.lineTo(p.kneeB.x, p.kneeB.y); ctx.lineTo(p.footB.x, p.footB.y);
+      ctx.stroke();
+      // brazos
+      ctx.lineWidth = 6 * S;
+      ctx.beginPath();
+      ctx.moveTo(p.chest.x, p.chest.y); ctx.lineTo(p.handF.x, p.handF.y);
+      ctx.moveTo(p.chest.x, p.chest.y); ctx.lineTo(p.handB.x, p.handB.y);
+      ctx.stroke();
+      // cabeza
+      ctx.beginPath();
+      ctx.arc(p.head.x, p.head.y, 9 * S, 0, 7);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   // ── Confetti de victoria ──────────────────────────────────────────────
@@ -1887,6 +1932,21 @@ export class Renderer {
       ctx.shadowBlur = 30;
       ctx.fillText(m.countT > 0.35 ? (c > 3 ? '' : c) : '', cx, H * 0.4);
       ctx.shadowBlur = 0;
+      // Torneo: presentar la ronda y el rival mientras baja la cuenta
+      if (world.torneo) {
+        const t = world.torneo;
+        ctx.font = 'bold 26px Georgia, serif';
+        ctx.fillStyle = '#ffd76a';
+        ctx.fillText(
+          t.cfg.final ? '🏆 LA FINAL' : `RONDA ${t.indice + 1} de ${t.total}`,
+          cx, H * 0.4 + 64);
+        ctx.font = '19px Georgia, serif';
+        ctx.fillStyle = 'rgba(232,236,255,0.85)';
+        ctx.fillText(`vs ${t.cfg.nombre}`, cx, H * 0.4 + 94);
+        ctx.font = 'italic 14px Georgia, serif';
+        ctx.fillStyle = 'rgba(210,200,240,0.6)';
+        ctx.fillText(t.cfg.frase, cx, H * 0.4 + 120);
+      }
     } else if (m.state === 'play' && m.timeLeft > this.durationMinusYa(m) && !m.golden) {
       // "¡YA!" breve al iniciar
       ctx.font = 'bold 110px Georgia, serif';
@@ -1939,7 +1999,8 @@ export class Renderer {
       } else if (m.winner === 'p1') {
         ctx.fillStyle = '#ffd76a';
         ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 40;
-        ctx.fillText('¡VICTORIA!', cx, H * 0.36);
+        const tr = world.torneoResult;
+        ctx.fillText(tr?.campeon ? '¡CAMPEÓN!' : tr ? '¡RONDA SUPERADA!' : '¡VICTORIA!', cx, H * 0.36);
         ctx.shadowBlur = 0;
       } else {
         ctx.fillStyle = '#b08cff';
@@ -1952,7 +2013,17 @@ export class Renderer {
       ctx.fillStyle = 'rgba(255,255,255,0.65)';
       const pulse = 0.5 + 0.35 * Math.sin(this.t * 4);
       ctx.globalAlpha = 0.5 + pulse * 0.5;
-      ctx.fillText(world.touch?.active ? 'Tocá la pantalla para jugar otra' : 'Click o ENTER para jugar otra', cx, H * 0.36 + 140);
+      // El torneo guía al siguiente paso; el partido suelto ofrece la revancha
+      let prompt = world.touch?.active
+        ? 'Tocá la pantalla para jugar otra'
+        : 'Click o ENTER para jugar otra';
+      const tr2 = world.torneoResult;
+      if (tr2) {
+        prompt = tr2.campeon ? 'Tocá para reclamar tu trofeo 🏆'
+          : tr2.win ? `Tocá para la Ronda ${tr2.proxima + 1}`
+          : 'Tocá para reintentar la ronda';
+      }
+      ctx.fillText(prompt, cx, H * 0.36 + 140);
       ctx.globalAlpha = 1;
 
       // ── Racha y récords ─────────────────────────────────────────────────
@@ -2395,6 +2466,14 @@ export class Renderer {
       ctx.font = '11px Georgia, serif';
       ctx.fillStyle = 'rgba(255,215,106,0.7)';
       ctx.fillText('el próximo gana', cx, y + 43);
+    } else if (m.goalTarget > 0) {
+      // Por goles: la meta reemplaza al reloj — es lo único que importa.
+      ctx.font = 'bold 22px Georgia, serif';
+      ctx.fillStyle = '#ffd76a';
+      ctx.fillText(`META ${m.goalTarget}`, cx, y + 28);
+      ctx.font = '10px Georgia, serif';
+      ctx.fillStyle = 'rgba(210,200,240,0.45)';
+      ctx.fillText('el primero gana', cx, y + 46);
     } else {
       const t = Math.max(m.timeLeft, 0);
       const mm = Math.floor(t / 60), ss = Math.floor(t % 60);

@@ -14,6 +14,21 @@ const DIFFICULTY = {
   dificil: { think: 0.6, aim: 0.45 },
 };
 
+// Personalidad por héroe: sesgos LEVES sobre el comportamiento base, para
+// que el rival se sienta distinto según quién sea sin romper el balance
+// (la dificultad sigue mandando por encima). Se lee del characterId del
+// jugador que controla este bot; sin personaje → bot clásico.
+const PERSONAS = {
+  // Valka embiste: patea con el freno más seguido y no se queda trabada.
+  valka:   { brakeKick: 0.75, impaciente: true, boostCerca: true },
+  // Zefir caza: obsesionado con el fugitivo, decide más rápido, vuela a fondo.
+  zefir:   { chaseMul: 1.6, thinkMul: 0.85, boostCerca: true },
+  // Mordrak se atrinchera: con la pelota en campo rival, espera y contragolpea.
+  mordrak: { defensor: true },
+  // Ízar bombardea: carga el golpe MUCHO antes — llega con el latigazo a tope.
+  izar:    { francotirador: true, brakeKick: 0.3 },
+};
+
 export class Bot {
   constructor(player, ownSide, difficulty = 'normal') {
     this.player = player;
@@ -44,7 +59,8 @@ export class Bot {
     const dBall = Math.hypot(ball.pos.x - me.pos.x, ball.pos.y - me.pos.y);
     if (ballSpeed < 140 && dBall < 260 && this.backoffT <= 0) {
       this.stuckT += dt;
-      if (this.stuckT > 1.7) { this.backoffT = 1.1; this.stuckT = 0; }
+      const lim = (PERSONAS[this.player.characterId] ?? {}).impaciente ? 1.2 : 1.7;
+      if (this.stuckT > lim) { this.backoffT = 1.1; this.stuckT = 0; }
     } else {
       this.stuckT = Math.max(this.stuckT - dt * 2, 0);
     }
@@ -56,7 +72,8 @@ export class Bot {
       // un humano: el bot deja de "comprometerse" con una decisión vieja
       // mientras la jugada ya cambió. La dificultad estira o acorta esta
       // ventana — un bot fácil reacciona tarde a lo que acaba de pasar.
-      this.decideT = 0.09 * this.diff.think;
+      const pThink = (PERSONAS[this.player.characterId] ?? {}).thinkMul ?? 1;
+      this.decideT = 0.09 * this.diff.think * pThink;
       this._decide(world);
     }
 
@@ -91,6 +108,7 @@ export class Bot {
     const ball = world.ball;
     const me = this.player.broom;
     const halfW = CFG.arena.R;
+    const persona = PERSONAS[this.player.characterId] ?? {};
     const scorePortal = portalCenter(this.targetSide);
     const ownPortal = portalCenter(this.ownSide);
 
@@ -130,6 +148,12 @@ export class Bot {
     // El que está más cerca va a buscarla; el otro cubre, salvo que sea el
     // 'support' y la pelota esté claramente lejos de su zona.
     let hangBack = false;
+    // Mordrak defensor: con la pelota bien metida en campo rival no la
+    // persigue — se queda cubriendo y espera el contragolpe. Sale de la
+    // cueva apenas la pelota cruza al medio.
+    if (persona.defensor && ball.pos.x * this.ownSide < -halfW * 0.2) {
+      hangBack = true;
+    }
     if (world.players && world.players.length > 2) {
       const mates = world.players.filter(
         (p) => p !== this.player && p.team === this.player.team);
@@ -172,7 +196,7 @@ export class Bot {
       const bestOfTeam = mates.every(
         (p) => Math.hypot(runner.x - p.broom.pos.x, runner.y - p.broom.pos.y) > dRun);
       const emergency = towardOwn && ballNearOwn && !meBehindBall;
-      if (bestOfTeam && !emergency && dRun < CFG.runner.chaseRange) {
+      if (bestOfTeam && !emergency && dRun < CFG.runner.chaseRange * (persona.chaseMul ?? 1)) {
         this.mode = 'runner';
         this.shotAim = null;
         // Interceptar: apuntar adonde VA a estar, no donde está
@@ -228,8 +252,10 @@ export class Bot {
       this.desired.x = bp.x + sx * 60;
       this.desired.y = bp.y + sy * 60;
       this.thrust = true;
-      // Brake kick: cerca y rápido → frenar para que el cuerpo golpee
-      this.brake = distToBall < 150 && speed > 480 && Math.random() < 0.5;
+      // Brake kick: cerca y rápido → frenar para que el cuerpo golpee.
+      // La personalidad mueve la probabilidad: Valka patea casi siempre,
+      // Ízar casi nunca (prefiere llegar cargado).
+      this.brake = distToBall < 150 && speed > 480 && Math.random() < (persona.brakeKick ?? 0.5);
 
       // Seguro anti-autogol: si además de atacar la pelota está pegada al
       // arco propio, empujar "hacia el portal rival" puede significar
@@ -278,7 +304,11 @@ export class Bot {
     if (this.mode === 'attack' || this.mode === 'defend' || this.mode === 'flank') {
       const closingSpeed = Math.max(speed, 120);
       const tToBall = distToBall / closingSpeed;
-      const aboutToHit = tToBall < 0.34;
+      // Ízar francotirador: entra en ventana de golpe mucho antes → carga
+      // el latigazo más tiempo → llega con el tiro a tope (y de fuego, si
+      // tiene reserva). Es SU forma de jugar.
+      const ventana = persona.francotirador ? 0.55 : 0.34;
+      const aboutToHit = tToBall < ventana;
 
       if (aboutToHit) {
         // Al entrar en la ventana de golpe el cursor deja de dirigir la escoba
@@ -302,7 +332,7 @@ export class Bot {
       const awayFromOwn = (hx * ax + hy * ay) / al;
       const safeToHit = !this.shotAim || awayFromOwn > -0.35;
 
-      if (safeToHit && tToBall < 0.34 && tToBall > 0.06) this.tuck = true;
+      if (safeToHit && tToBall < ventana && tToBall > 0.06) this.tuck = true;
       else if (tToBall <= 0.06) this.tuck = false;             // soltar → latigazo
       else if (!safeToHit) { this.tuck = false; this.shotAim = null; }
     } else {
@@ -312,7 +342,7 @@ export class Bot {
     // Boost: antes solo lo usaba lejos y atacando, así que en defensa llegaba
     // caminando a tapar. Ahora también cubre la carrera defensiva, que es
     // donde un humano hacía la diferencia yendo con impulso.
-    const boostWorthIt = distToBall > 320 || this.mode === 'defend';
+    const boostWorthIt = distToBall > (persona.boostCerca ? 230 : 320) || this.mode === 'defend';
     this.wantsBoost = this.thrust && boostWorthIt && Math.abs(diff) < 0.6;
 
     // Error humano (menos cuando está encima de la pelota)

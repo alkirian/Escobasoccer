@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escoba Voladora — Trofeos</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0c18; --panel: #141830; --panel2: #1b2040; --line: #2a3157;
+    --text: #e8ecff; --muted: #8a93be; --accent: #ffd54a; --ok: #6ee7a0;
+  }
+  body {
+    background: radial-gradient(ellipse at 50% -20%, #1a2145 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh; padding: 26px 18px 40px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  h1 { font: 700 28px Georgia, serif; }
+  h1 span { color: var(--accent); }
+  section { width: min(680px, 94vw); }
+  h2 { font: 700 17px Georgia, serif; color: var(--accent); margin-bottom: 8px; }
+
+  .campeon-banner {
+    background: linear-gradient(135deg, #3a2f10, #1a1608);
+    border: 2px solid var(--accent); border-radius: 14px;
+    padding: 18px 22px; text-align: center;
+    font: 700 22px Georgia, serif; color: var(--accent);
+    box-shadow: 0 0 40px rgba(255,213,74,.3);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { box-shadow: 0 0 60px rgba(255,213,74,.5); } }
+  .campeon-banner small { display: block; font: 400 13px system-ui; color: #cdb26a; margin-top: 4px; }
+
+  .grid-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 12px; text-align: center;
+  }
+  .stat b { display: block; font: 700 24px Georgia, serif; color: var(--text); }
+  .stat span { font-size: 11.5px; color: var(--muted); }
+  .stat.gold b { color: var(--accent); }
+
+  .torneo-box {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 13px 16px; display: flex; align-items: center; gap: 14px;
+  }
+  .torneo-box .cup { font-size: 38px; }
+  .torneo-box .info { flex: 1; }
+  .torneo-box .info b { color: var(--accent); }
+  .torneo-box .info .sub { color: var(--muted); font-size: 12.5px; }
+  .torneo-box a {
+    background: var(--accent); color: #1a1400; text-decoration: none;
+    font-weight: 700; padding: 9px 18px; border-radius: 10px;
+  }
+
+  .ch {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 9px 14px; margin-bottom: 6px; font-size: 13px;
+  }
+  .ch .ico { font-size: 20px; width: 28px; text-align: center; }
+  .ch .tit { font-weight: 700; }
+  .ch .des { color: var(--muted); font-size: 12px; }
+  .ch .premio { margin-left: auto; font-size: 11.5px; color: var(--muted); text-align: right; }
+  .ch.done { border-color: rgba(110,231,160,.5); }
+  .ch.done .tit::after { content: ' ✓'; color: var(--ok); }
+  .ch.done .premio { color: var(--ok); }
+
+  .volver {
+    color: var(--muted); text-decoration: none; font-size: 14px;
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 22px;
+  }
+  .volver:hover { color: var(--text); border-color: #3d4780; }
+</style>
+</head>
+<body>
+  <h1>🏆 <span>Trofeos</span></h1>
+  <div id="campeonBanner" style="display:none" class="campeon-banner"></div>
+
+  <section>
+    <h2>Camino al Campeonato</h2>
+    <div class="torneo-box" id="torneoBox"></div>
+  </section>
+
+  <section>
+    <h2>Récords</h2>
+    <div class="grid-stats" id="stats"></div>
+  </section>
+
+  <section>
+    <h2>Desafíos</h2>
+    <div id="challenges"></div>
+  </section>
+
+  <a class="volver" href="index.html">← Volver al menú</a>
+
+  <script type="module">
+    import { CHALLENGES, isDone } from './src/challenges.js';
+    import { loadStats } from './src/stats.js';
+    import { loadTorneo, RONDAS } from './src/torneo.js';
+
+    // Banner de campeón recién coronado (llega desde el fin del torneo)
+    if (new URLSearchParams(location.search).has('campeon')) {
+      const b = document.getElementById('campeonBanner');
+      b.style.display = 'block';
+      b.innerHTML = '🏆 ¡CAMPEÓN DEL CAMINO! 🏆<small>Ganaste las cinco rondas. El trofeo es tuyo para siempre.</small>';
+    }
+
+    // Torneo
+    const t = loadTorneo();
+    const tb = document.getElementById('torneoBox');
+    const copas = t.campeonatos > 0 ? '🏆'.repeat(Math.min(t.campeonatos, 5)) : '🏆';
+    tb.innerHTML = `
+      <div class="cup" style="${t.campeonatos ? '' : 'filter:grayscale(1);opacity:.4'}">${copas}</div>
+      <div class="info">
+        <b>${t.campeonatos > 0 ? `Campeonatos ganados: ${t.campeonatos}` : 'Todavía sin campeonatos'}</b>
+        <div class="sub">
+          ${t.ronda > 0
+            ? `Torneo en curso: ronda ${t.ronda + 1} de ${RONDAS.length} (vs ${RONDAS[t.ronda].nombre})`
+            : `Mejor avance: ${t.mejorRonda > 0 ? `ronda ${Math.min(t.mejorRonda, RONDAS.length)} de ${RONDAS.length}` : 'aún no empezaste'}`}
+        </div>
+      </div>
+      <a href="jugar.html">${t.ronda > 0 ? 'Continuar' : 'Empezar'}</a>`;
+
+    // Récords
+    const s = loadStats();
+    const stats = [
+      [s.wins, 'Victorias'],
+      [s.losses, 'Derrotas'],
+      [s.bestStreak, 'Mejor racha', true],
+      [s.goalsFor, 'Goles a favor'],
+      [s.biggestWin, 'Mayor goleada', true],
+      [s.runners, 'Fugitivos atrapados'],
+    ];
+    document.getElementById('stats').innerHTML = stats
+      .map(([v, l, gold]) => `<div class="stat${gold ? ' gold' : ''}"><b>${v}</b><span>${l}</span></div>`)
+      .join('');
+
+    // Desafíos
+    const box = document.getElementById('challenges');
+    for (const c of CHALLENGES) {
+      const row = document.createElement('div');
+      row.className = 'ch' + (isDone(c.id) ? ' done' : '');
+      const premio = c.palette ? `Paleta: ${c.palette.nombre}` : 'Medalla';
+      row.innerHTML = `
+        <div class="ico">${c.icono}</div>
+        <div><div class="tit">${c.titulo}</div><div class="des">${c.desc}</div></div>
+        <div class="premio">${premio}</div>`;
+      box.appendChild(row);
+    }
+  </script>
+</body>
+</html>

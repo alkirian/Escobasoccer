@@ -19,6 +19,7 @@ import { ReplayRecorder, ReplayPlayer } from './replay.js';
 import { Coach } from './coach.js';
 import { recordMatch, recordRunnerCatch, isFirstEver, loadStats } from './stats.js';
 import { completeChallenge, selectedPalettes } from './challenges.js';
+import { rondaActual, torneoWin, torneoLose, RONDAS } from './torneo.js';
 import { collideBallArena, collideBroomArena, applyPortalSuction } from './arena.js';
 import { interactPlayerBall, interactPlayers, clampRiderArena } from './collisions.js';
 import { emitTrail } from './characters.js';
@@ -69,15 +70,31 @@ const NOORBS = params.has('noorbs');
 // primera experiencia tiene que ser GANAR — después elige lo que quiera.
 // Pisa incluso lo que venga del menú: un jugador nuevo todavía no formó
 // preferencias, solo apretó "Jugar" con los valores por defecto.
-const FIRST_EVER = !FAST && !BOTS && !PRACTICE && isFirstEver();
+// ── Torneo (Camino al Campeonato) ─────────────────────────────────────────
+// La ronda vigente vive en localStorage (torneo.js); la URL solo dice "es
+// torneo". Así la página del partido y la de preparación nunca discrepan.
+const TORNEO = params.get('mode') === 'torneo';
+const T_RONDA = TORNEO ? rondaActual() : null;
+
+// ── Partido por goles ─────────────────────────────────────────────────────
+// `?goals=N`: gana el primero que llega a N (sin reloj, sin gol de oro).
+const GOALS = TORNEO
+  ? (T_RONDA.cfg.goles || 0)
+  : Math.max(0, Math.min(50, Number(params.get('goals')) || 0));
+
+const FIRST_EVER = !FAST && !BOTS && !PRACTICE && !TORNEO && !GOALS && isFirstEver();
 
 // Duración: se acepta solo lo que manda el menú (60/120/180). `fast` sigue
-// pisando todo para las pruebas rápidas.
+// pisando todo para las pruebas rápidas. En torneo manda la ronda; por goles
+// el reloj no corre (se pasa igual por prolijidad del HUD).
 const DURATION = FAST ? 30
+  : TORNEO ? (T_RONDA.cfg.duracion || CFG.match.duration)
   : FIRST_EVER ? 90
   : (Number(params.get('duration')) || CFG.match.duration);
 // Dificultad de los bots: 'facil' | 'normal' | 'dificil'
-const DIFFICULTY = FIRST_EVER ? 'facil' : (params.get('difficulty') || 'normal');
+const DIFFICULTY = TORNEO ? T_RONDA.cfg.dificultad
+  : FIRST_EVER ? 'facil'
+  : (params.get('difficulty') || 'normal');
 
 // --- Canvas con devicePixelRatio ---
 function resize() {
@@ -137,7 +154,8 @@ const CHAR_POOL = ['mago', 'valka', 'mordrak', 'izar', 'zefir'];
   playerA.characterId = CHAR_POOL.includes(pick) ? pick : 'mago';
   // Paleta alternativa elegida en la galería (recompensa de desafíos)
   playerA.paletteId = selectedPalettes()[playerA.characterId] ?? null;
-  const forced = params.get('charbot');
+  // En torneo el rival lo dicta la ronda, no el azar.
+  const forced = TORNEO ? T_RONDA.cfg.rival : params.get('charbot');
   // Los bots nunca copian al humano: un partido espejo confunde, sobre todo
   // con Mordrak, cuyos dos bandos son casi iguales salvo por el brillo.
   const botPool = CHAR_POOL.filter((c) => c !== playerA.characterId);
@@ -198,6 +216,28 @@ let _dashPending = false;
 // Temporizador anti-esquina de la pelota (ver el empujón en step())
 let _cornerT = 0;
 
+// ── Hit-stop ───────────────────────────────────────────────────────────────
+// Congelar el mundo 45-70 ms en el instante de un cañonazo hace que el golpe
+// se SIENTA (la técnica de game feel más vieja y rentable que existe). Se
+// detecta por el salto de velocidad de la pelota: cualquier golpe que la
+// dispare fuerte lo gatilla, venga del giro, del latigazo o de un choque.
+let _hitstopT = 0;
+let _prevBallSpd = 0;
+
+// ── Estela fantasma del dash ───────────────────────────────────────────────
+// Siluetas desvanecidas del mago en sus posiciones de hace unos frames.
+// Vende la velocidad del dash sin partículas nuevas.
+const _ghosts = [];
+let _ghostEmitT = 0;
+let _ghostSkip = 0;
+function _snapGhost() {
+  const pts = {};
+  const P = playerA.rider.points;
+  for (const k in P) pts[k] = { x: P[k].x, y: P[k].y };
+  _ghosts.push({ pts, life: 0.26, max: 0.26 });
+  if (_ghosts.length > 10) _ghosts.shift();
+}
+
 // ── Repetición del gol ────────────────────────────────────────────────────
 // Solo en partida de a uno: en modo espectador (?bots) no hay a quién
 // mostrarle la jugada, y en práctica no hay goles que celebrar.
@@ -226,6 +266,8 @@ const world = {
   dashState, spin, charge,   // expuestos para el HUD del renderer
   // Desafíos completados esperando su aviso en pantalla (los saca el render)
   challengeQueue: [],
+  // Estela fantasma del dash (siluetas que dibuja el render)
+  ghosts: _ghosts,
   // Overlay de pausa (Continuar/Menú/Salir). El renderer llena `rects` cada
   // frame con las zonas que dibujó; acá abajo se usan para el hit-test del
   // mouse — mismo patrón que menu.js pero compartiendo el world en vez de
@@ -259,8 +301,11 @@ const world = {
 const match = new Match(world, {
   duration: DURATION,      // opción "Duración del partido" del menú
   practice: PRACTICE,
+  goalTarget: GOALS,       // partido por goles: primero a N gana
 });
 world.match = match;
+// El HUD y la pantalla de fin leen de acá qué ronda del torneo se juega.
+world.torneo = TORNEO ? { indice: T_RONDA.indice, cfg: T_RONDA.cfg, total: RONDAS.length } : null;
 
 // Un bot por jugador, menos el humano (salvo en modo ?bots, donde juegan todos).
 // En 2v2 los compañeros reciben roles distintos para que no se amontonen:
@@ -430,6 +475,7 @@ function step(dt) {
       dashState.charges--;
       dashState.active = true;
       dashState.t = 0;
+      _ghostEmitT = 0.16;   // ventana de emisión de la estela fantasma
       const d = b.dir();
       b.vel.x += d.x * DASH.power;
       b.vel.y += d.y * DASH.power;
@@ -670,6 +716,28 @@ function step(dt) {
     if (b.brakePower > 0.3) particles.brake(b.pos.x, b.pos.y, b.vel.x, b.vel.y);
   }
   particles.update(dt);
+
+  // ── Estela fantasma: emitir durante el dash, desvanecer siempre ──────────
+  if (_ghostEmitT > 0) {
+    _ghostEmitT -= dt;
+    _ghostSkip = (_ghostSkip + 1) % 3;
+    if (_ghostSkip === 0) _snapGhost();
+  }
+  for (let i = _ghosts.length - 1; i >= 0; i--) {
+    _ghosts[i].life -= dt;
+    if (_ghosts[i].life <= 0) _ghosts.splice(i, 1);
+  }
+
+  // ── Cañonazo → hit-stop ──────────────────────────────────────────────────
+  // Un salto brusco de velocidad de la pelota = alguien la reventó. El
+  // congelado escala apenas con la potencia (45→70 ms, nunca más).
+  const _bs = Math.hypot(ball.vel.x, ball.vel.y);
+  if (match.state === 'play' && !ball.frozen && _bs - _prevBallSpd > 1500 && _bs > 1800) {
+    _hitstopT = Math.min(0.07, 0.045 + (_bs - 1800) / 45000);
+    camera.setSpeedPunch(0.6);   // micro-zoom que decae solo
+    camera.shake(5, 12);
+  }
+  _prevBallSpd = _bs;
 }
 
 // Acciones del overlay de pausa (ver world.pauseMenu / render.js#_pauseMenu).
@@ -777,6 +845,17 @@ function frame(now) {
           sound.stingChallenge();
         }
       }
+
+      // Torneo: avanzar o quedarse en la ronda, UNA sola vez.
+      if (TORNEO) {
+        if (match.winner === 'p1') {
+          const r = torneoWin();
+          world.torneoResult = { win: true, campeon: r.campeon, proxima: r.proximaRonda };
+        } else {
+          torneoLose();
+          world.torneoResult = { win: false };
+        }
+      }
     }
   }
 
@@ -792,10 +871,25 @@ function frame(now) {
     }
     if (input.pressed('lmb') && pm.hot) _pauseAction(pm.hot);
   } else if (match.state === 'end' && (input.pressed('lmb') || input.pressed('Enter') || touch.consumeTap())) {
-    // Partido nuevo, SIN presentación: el jugador ya está en la cancha y
-    // acaba de ver el marcador final. Repetir el viaje de cámara acá es lo
-    // que se sentía fuera de lugar.
-    match.reset(true);
+    if (TORNEO && world.torneoResult) {
+      // El torneo no repite el mismo partido: navega a lo que sigue —
+      // próxima ronda (o la misma si perdió) o, de campeón, a los trofeos.
+      // Recargar la página además vuelve a leer la ronda desde el storage.
+      if (world.torneoResult.campeon) {
+        location.href = 'trofeos.html?campeon=1';
+      } else {
+        const q = new URLSearchParams();
+        q.set('mode', 'torneo');
+        if (MUTE) q.set('mute', '1');
+        if (NOORBS) q.set('noorbs', '1');
+        location.href = `play.html?${q}`;
+      }
+    } else {
+      // Partido nuevo, SIN presentación: el jugador ya está en la cancha y
+      // acaba de ver el marcador final. Repetir el viaje de cámara acá es lo
+      // que se sentía fuera de lugar.
+      match.reset(true);
+    }
   }
 
   // La repetición arranca cuando el festejo del gol termina y el partido pasa
@@ -816,6 +910,10 @@ function frame(now) {
     const c = completeChallenge('piromania');
     if (c) { world.challengeQueue.push(c); sound.stingChallenge(); }
   }
+
+  // Hit-stop del gol: un latido congelado justo cuando la pelota cruza,
+  // antes de que arranque la succión y la carga del portal.
+  if (match.state === 'goal' && prevMatchState !== 'goal') _hitstopT = 0.07;
 
   prevMatchState = match.state;
 
@@ -853,7 +951,13 @@ function frame(now) {
     const stepDt = slowing
       ? Math.max(FIXED_DT * match.timeScale, FIXED_DT / 8)
       : FIXED_DT;
-    acc += dtReal * match.timeScale;
+    // Hit-stop: mientras dura, el mundo NO recibe tiempo (ni física ni
+    // partido). El render sigue — el congelado ES la imagen quieta.
+    if (_hitstopT > 0) {
+      _hitstopT -= dtReal;
+    } else {
+      acc += dtReal * match.timeScale;
+    }
     const maxSteps = 6;
     let steps = 0;
     while (acc >= stepDt && steps < maxSteps) {

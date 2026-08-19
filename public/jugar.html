@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escoba Voladora — Preparar partido</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0c18; --panel: #141830; --panel2: #1b2040; --line: #2a3157;
+    --text: #e8ecff; --muted: #8a93be; --accent: #ffd54a;
+  }
+  body {
+    background: radial-gradient(ellipse at 50% -20%, #1a2145 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh; padding: 20px 16px 30px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  h1 { font: 700 24px Georgia, serif; }
+  h1 span { color: var(--accent); }
+
+  /* Pestañas de modo */
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .tab {
+    font: 600 15px system-ui; padding: 10px 22px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+    cursor: pointer; transition: .14s;
+  }
+  .tab:hover { color: var(--text); border-color: #3d4780; }
+  .tab.on { background: var(--accent); border-color: var(--accent); color: #1a1400; }
+
+  /* Héroe */
+  .hero-box { display: flex; align-items: center; gap: 10px; }
+  .arrow {
+    font-size: 34px; background: none; border: none; color: var(--muted);
+    cursor: pointer; padding: 10px; transition: .13s; user-select: none;
+  }
+  .arrow:hover { color: var(--accent); transform: scale(1.2); }
+  .hero-card { text-align: center; }
+  #heroCanvas {
+    width: min(400px, 78vw); height: 250px; border-radius: 14px;
+    background: linear-gradient(180deg, #10142c 0%, #171c38 100%);
+    border: 1px solid var(--line);
+  }
+  .hero-nom { font: 700 21px Georgia, serif; margin-top: 6px; }
+  .hero-nom small { color: var(--muted); font: 400 13px system-ui; }
+  .hero-rol {
+    display: inline-block; font-size: 10.5px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--accent);
+    background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 20px; padding: 2px 11px; margin-top: 3px;
+  }
+  .pal-row { display: flex; gap: 6px; justify-content: center; margin-top: 7px; min-height: 24px; }
+  .pal {
+    font: 600 11px system-ui; padding: 3px 11px; border-radius: 13px;
+    border: 1px solid var(--line); background: var(--panel2); color: var(--muted);
+    cursor: pointer; transition: .13s;
+  }
+  .pal.on { border-color: var(--accent); color: var(--accent); }
+
+  /* Reglas */
+  .rules { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .rule-card {
+    background: var(--panel); border: 2px solid var(--line); border-radius: 14px;
+    padding: 12px 16px 14px; min-width: 210px; cursor: pointer; transition: .15s;
+    text-align: center;
+  }
+  .rule-card h3 { font: 700 13px system-ui; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 9px; }
+  .rule-card.on { border-color: var(--accent); }
+  .rule-card.on h3 { color: var(--accent); }
+  .rule-card.off { opacity: .45; }
+  .chips { display: flex; gap: 6px; justify-content: center; }
+  .chip {
+    font: 600 13px system-ui; padding: 6px 14px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--panel2); color: var(--muted);
+    cursor: pointer; transition: .13s;
+  }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #1a1400; }
+
+  .rival { display: flex; align-items: center; gap: 10px; }
+  .rival b { font: 700 13px system-ui; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+
+  /* Bracket del torneo */
+  #bracket { display: none; flex-direction: column; gap: 6px; width: min(440px, 90vw); }
+  .ronda {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 13px; font-size: 13px;
+  }
+  .ronda.done { border-color: rgba(110,231,160,.5); }
+  .ronda.actual { border-color: var(--accent); background: #232a52; }
+  .ronda .st { width: 24px; text-align: center; font-size: 15px; }
+  .ronda .quien { font-weight: 700; }
+  .ronda .det { color: var(--muted); font-size: 11.5px; }
+  .ronda .regla { margin-left: auto; color: var(--muted); font-size: 11px; text-align: right; }
+  .t-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .t-head b { color: var(--accent); font: 700 14px Georgia, serif; }
+  .t-head button {
+    background: none; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 7px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+  }
+  .t-head button:hover { color: #ff7a8c; border-color: #ff7a8c; }
+
+  /* Botón principal */
+  .go {
+    font: 700 22px Georgia, serif; letter-spacing: .04em;
+    background: var(--accent); color: #1a1400;
+    border: none; border-radius: 16px; padding: 16px 60px;
+    cursor: pointer; transition: .15s;
+    box-shadow: 0 0 30px rgba(255,213,74,.3);
+    margin-top: 4px;
+  }
+  .go:hover { filter: brightness(1.08); transform: scale(1.03); }
+
+  .volver { color: var(--muted); text-decoration: none; font-size: 13px; margin-top: 2px; }
+  .volver:hover { color: var(--text); }
+</style>
+</head>
+<body>
+  <h1>Preparar <span>partido</span></h1>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="hero-box">
+    <button class="arrow" id="prevHero">‹</button>
+    <div class="hero-card">
+      <canvas id="heroCanvas" width="500" height="310"></canvas>
+      <div class="hero-nom" id="heroNom"></div>
+      <div><span class="hero-rol" id="heroRol"></span></div>
+      <div class="pal-row" id="palRow"></div>
+    </div>
+    <button class="arrow" id="nextHero">›</button>
+  </div>
+
+  <div class="rules" id="rules">
+    <div class="rule-card" id="cardTiempo">
+      <h3>⏱ Por tiempo</h3>
+      <div class="chips" id="chipsTiempo"></div>
+    </div>
+    <div class="rule-card" id="cardGoles">
+      <h3>🥅 Por goles</h3>
+      <div class="chips" id="chipsGoles"></div>
+    </div>
+  </div>
+
+  <div class="rival" id="rivalRow">
+    <b>Rival</b>
+    <div class="chips" id="chipsRival"></div>
+  </div>
+
+  <div id="bracket"></div>
+
+  <button class="go" id="btnGo">▶ ¡A VOLAR!</button>
+  <a class="volver" href="index.html">← Volver al menú</a>
+
+  <script type="module" src="src/jugar.js"></script>
+</body>
+</html>
