@@ -56,6 +56,16 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #1a1400; }
   .btn.primary:hover { filter: brightness(1.08); }
 
+  /* Barras de stats */
+  .stats { display: flex; flex-direction: column; gap: 3px; margin: 2px 0; }
+  .strow { display: flex; align-items: center; gap: 6px; font-size: 10.5px; }
+  .strow .sn { width: 62px; color: var(--muted); text-align: left; }
+  .strow .pips { display: flex; gap: 2px; flex: 1; }
+  .strow .pip {
+    flex: 1; height: 6px; border-radius: 2px; background: #262c4e;
+  }
+  .strow .pip.on { background: var(--c); }
+
   /* Paletas alternativas (recompensas de desafíos) */
   .pal-row { display: flex; gap: 6px; justify-content: center; min-height: 26px; }
   .pal {

@@ -117,9 +117,15 @@ export class Broom {
     if (this.slamT > 0) this.slamT = Math.max(0, this.slamT - dt);
     const slamF = this.slamT > 0 ? CFG.stuck.slamControl : 1;
 
+    // MANIOBRA (stat): multiplica el resorte angular y el techo de torque.
+    // `mods` puede no existir en escenas de prueba que crean Broom suelto.
+    const M = this.mods;
+    const manK = M ? M.angK : 1;
+    const manA = M ? M.angAcc : 1;
+
     const tuckMul = (1 + (B.tuckAngMul - 1) * this.tuckAmount) * gain * slamF;
-    let angAcc = (B.angK * useDiff - B.angD * this.angVel) * tuckMul;
-    angAcc = clamp(angAcc, -B.angAccMax * tuckMul, B.angAccMax * tuckMul);
+    let angAcc = (B.angK * manK * useDiff - B.angD * this.angVel) * tuckMul;
+    angAcc = clamp(angAcc, -B.angAccMax * manA * tuckMul, B.angAccMax * manA * tuckMul);
     this.angVel += angAcc * dt;
     this.angVel *= Math.exp(-0.4 * dt); // leve fricción rotacional
     this.angle = wrapAngle(this.angle + this.angVel * dt);
@@ -137,7 +143,10 @@ export class Broom {
       const d = this.dir();
       // Aturdido tampoco acelera: acelerar a fondo mientras la escoba está
       // dada vuelta anularía la sensación del golpe.
-      const mul = (1 + (CFG.boost.thrustMul - 1) * this.boostPower) * slamF;
+      // VELOCIDAD (stat): este es el camino que usan los BOTS (el humano
+      // aplica su empuje a mano en main.js con noThrustForce).
+      const mul = (1 + (CFG.boost.thrustMul - 1) * this.boostPower) * slamF
+        * (M ? M.thrust : 1);
       this.vel.x += d.x * B.thrust * mul * dt;
       this.vel.y += d.y * B.thrust * mul * dt;
     }
@@ -173,6 +182,9 @@ export class Broom {
     const sp = Math.hypot(this.vel.x, this.vel.y);
     let quad = B.dragQuad * (1 - 0.25 * this.tuckAmount); // recogido = menos drag
     quad /= 1 + (CFG.boost.speedCapMul - 1) * this.boostPower;
+    // VELOCIDAD (stat): el drag cuadrático ES el techo de velocidad, así que
+    // menos drag = más rápido. Por eso el mod viene ya invertido.
+    if (M) quad *= M.dragQuad;
     const f = Math.exp(-(drag + quad * sp) * dt);
     this.vel.x *= f;
     this.vel.y *= f;

@@ -197,8 +197,11 @@ export class Rider {
     // saber de antemano si toca el cañonazo.
     this.shotFire = energyF >= W.fireThreshold;
     if (energyF > 0 && W.energyCost > 0) target?.spendEnergy?.(W.energyCost);
-    return 1 + W.chargeBonus * chargeF + W.energyBonus * energyF
-      + (this.shotFire ? W.fireBonus : 0);
+    // FUERZA (stat): multiplica la potencia final del latigazo. El jinete
+    // lee el mod de su escoba, que es donde lo dejó el Player.
+    const fue = this.broom.mods ? this.broom.mods.shot : 1;
+    return (1 + W.chargeBonus * chargeF + W.energyBonus * energyF
+      + (this.shotFire ? W.fireBonus : 0)) * fue;
   }
 
   // Al soltar, si la pelota está en rango el latigazo se vuelve un GOLPE

@@ -5,6 +5,7 @@ import { CFG, FIXED_DT } from './config.js';
 import { Player } from './player.js';
 import { Renderer } from './render.js';
 import { ROSTER, CHARACTERS } from './characters.js';
+import { statsHTML } from './statsui.js';
 import {
   CHALLENGES, isDone, unlockedPalettes, selectedPalettes, selectPalette,
 } from './challenges.js';
@@ -38,6 +39,7 @@ for (const hero of ROSTER) {
     <div class="nom">${hero.nombre} <small>${hero.titulo}</small></div>
     <div class="rol">${hero.rol}</div>
     <p class="bio">${hero.bio}</p>
+    ${statsHTML(hero.id)}
     <div class="pal-row"></div>
     <div class="sel">✓ Seleccionado</div>`;
   card.onclick = () => {

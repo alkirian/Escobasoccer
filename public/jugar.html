@@ -52,6 +52,16 @@
     background: var(--panel2); border: 1px solid var(--line);
     border-radius: 20px; padding: 2px 11px; margin-top: 3px;
   }
+  /* Barras de stats */
+  .stats { display: flex; flex-direction: column; gap: 4px; margin: 9px auto 2px;
+           width: min(320px, 78vw); }
+  .strow { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+  .strow .sn { width: 74px; color: var(--muted); text-align: left; }
+  .strow .pips { display: flex; gap: 3px; flex: 1; }
+  .strow .pip { flex: 1; height: 8px; border-radius: 3px; background: #262c4e; }
+  .strow .pip.on { background: var(--c); }
+  .arq { color: var(--accent); font-size: 12px; font-style: italic; margin-top: 5px; }
+
   .pal-row { display: flex; gap: 6px; justify-content: center; margin-top: 7px; min-height: 24px; }
   .pal {
     font: 600 11px system-ui; padding: 3px 11px; border-radius: 13px;
@@ -130,6 +140,8 @@
       <canvas id="heroCanvas" width="500" height="310"></canvas>
       <div class="hero-nom" id="heroNom"></div>
       <div><span class="hero-rol" id="heroRol"></span></div>
+      <div id="heroStats"></div>
+      <div class="arq" id="heroArq"></div>
       <div class="pal-row" id="palRow"></div>
     </div>
     <button class="arrow" id="nextHero">›</button>

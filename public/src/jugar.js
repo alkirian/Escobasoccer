@@ -8,6 +8,8 @@ import { Renderer } from './render.js';
 import { ROSTER, CHARACTERS } from './characters.js';
 import { unlockedPalettes, selectedPalettes, selectPalette } from './challenges.js';
 import { RONDAS, loadTorneo, resetTorneo } from './torneo.js';
+import { statsHTML } from './statsui.js';
+import { statsOf } from './stats_chars.js';
 
 const CHAR_KEY = 'escoba.character.v1';
 const PREP_KEY = 'escoba.prep.v1';
@@ -155,6 +157,8 @@ function applyHero() {
   try { localStorage.setItem(CHAR_KEY, h.id); } catch { /* nada */ }
   $('heroNom').innerHTML = `${h.nombre} <small>${h.titulo}</small>`;
   $('heroRol').textContent = h.rol;
+  $('heroStats').innerHTML = statsHTML(h.id);
+  $('heroArq').textContent = statsOf(h.id).arq;
   // chips de paleta (solo desbloqueadas)
   const row = $('palRow');
   row.innerHTML = '';

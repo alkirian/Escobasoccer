@@ -3,11 +3,17 @@ import { Broom } from './broom.js';
 import { Rider } from './rider.js';
 import { CFG } from './config.js';
 import { clamp, damp } from './utils.js';
+import { modsOf } from './stats_chars.js';
 
 export class Player {
   constructor(x, y, angle, team) {
     this.team = team; // 'p1' | 'p2'
     this.broom = new Broom(x, y, angle);
+    // Multiplicadores de stats. Arrancan neutros (todo en 1) y se recalculan
+    // al asignar characterId — así un Player sin personaje sigue jugando
+    // exactamente como antes y ninguna escena de prueba se rompe.
+    this.mods = modsOf(null);
+    this.broom.mods = this.mods;
     this.rider = new Rider(this.broom);
     this.control = { aim: { x: x + 100, y: y }, thrust: false, brake: false, tuck: false, boost: false };
     this.spawn = { x, y, angle };
@@ -15,6 +21,18 @@ export class Player {
     this.energy = 0;        // reserva mágica de los orbes
     this.energyPulse = 0;   // destello del HUD al recoger
     this.unlimitedT = 0;    // energía ilimitada del orbe fugitivo (segundos)
+  }
+
+  // `characterId` es reactivo a propósito: se asigna desde muchos lugares
+  // (main, galería, editor, pantalla de preparación) y recalcular los mods a
+  // mano en cada uno sería una fuente segura de bugs — bastaría olvidarse en
+  // uno para tener un personaje con los stats de otro.
+  get characterId() { return this._charId; }
+
+  set characterId(id) {
+    this._charId = id;
+    this.mods = modsOf(id);
+    this.broom.mods = this.mods;
   }
 
   // Energía: la suman los orbes, la gasta el boost. Solo se puede arrancar
@@ -52,7 +70,11 @@ export class Player {
     }
     const can = this.energy > 0 && (this.broom.boosting || this.energy >= B.minToStart);
     const active = wantBoost && can && this.control.thrust;
-    if (active && !this.unlimited) this.energy = clamp(this.energy - B.drain * dt, 0, B.max);
+    // MAGIA (stat): el mod viene invertido (más magia = menos gasto), así
+    // que un mago con 5 en magia estira mucho más la misma barra.
+    if (active && !this.unlimited) {
+      this.energy = clamp(this.energy - B.drain * this.mods.boostDrain * dt, 0, B.max);
+    }
     this.control.boost = active;
     return active;
   }

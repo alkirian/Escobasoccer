@@ -153,8 +153,14 @@ function applyRam(attacker, victim, nx, ny, cx, cy, ally, fx) {
   const closing = (av.x - vv.x) * nx + (av.y - vv.y) * ny;
   if (closing < R.minSpeed) return;
 
+  // PESO (stat): el que embiste empuja según SU peso, y la víctima resiste
+  // según el suyo. Un Zefir chocando a Petra casi no la mueve; al revés, la
+  // manda a la tribuna. Es el stat que más se siente en un choque.
+  const aMods = attacker.mods, vMods = victim.mods;
   const force = Math.min((closing - R.minSpeed) * R.push, R.maxPush)
-    * (ally ? R.allyMul : 1);
+    * (ally ? R.allyMul : 1)
+    * (aMods ? aMods.ram : 1)
+    * (vMods ? vMods.knockback : 1);
 
   victim.broom.vel.x += nx * force;
   victim.broom.vel.y += ny * force;

@@ -122,8 +122,11 @@ export class Match {
       ux /= ul; uy /= ul;
 
       b.slamT = 0;    // la onda saca del aturdimiento a quien se acababa de golpear
-      b.vel.x += ux * push;
-      b.vel.y += uy * push;
+      // PESO (stat): a Petra la onda apenas la despeina; a Zefir lo manda
+      // al otro lado del mapa. Es la mitad defensiva del stat.
+      const kb = pl.mods ? pl.mods.knockback : 1;
+      b.vel.x += ux * push * kb;
+      b.vel.y += uy * push * kb;
       b.angVel += (Math.random() * 2 - 1) * G.spin * (0.35 + falloff);
       // El cuerpo recibe el golpe por su cuenta: sale disparado respecto de su
       // propia escoba y queda hecho un desastre colgando de las manos.

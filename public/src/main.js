@@ -376,7 +376,9 @@ function applySpinHit() {
     const ul = Math.hypot(ux, uy) || 1;
     ux /= ul; uy /= ul;
   }
-  const power = SPIN.minPower + (SPIN.maxPower - SPIN.minPower) * spin.chargeF;
+  // FUERZA (stat) multiplica la potencia del giro-golpe
+  const power = (SPIN.minPower + (SPIN.maxPower - SPIN.minPower) * spin.chargeF)
+    * playerA.mods.shot;
   const speed = Math.min(power, CFG.ball.maxSpeed);
   ball.vel.x = ux * speed;
   ball.vel.y = uy * speed;
@@ -442,7 +444,8 @@ function step(dt) {
 
     // Propulsión con multiplicadores
     if (!hovering && !frozen) {
-      const mul = boosting ? 1.4 : 0.65;
+      // VELOCIDAD (stat) multiplica la propulsión manual del jugador
+      const mul = (boosting ? 1.4 : 0.65) * playerA.mods.thrust;
       const d = b.dir();
       b.vel.x += d.x * CFG.broom.thrust * mul * dt;
       b.vel.y += d.y * CFG.broom.thrust * mul * dt;
@@ -457,7 +460,9 @@ function step(dt) {
 
     // ── Recarga del dash ──────────────────────────────────────────────────
     if (dashState.charges < DASH.maxCharges) {
-      dashState.rechargeT += dt;
+      // MAGIA (stat): el mod viene invertido, así que más magia = el
+      // contador avanza más rápido = recarga antes.
+      dashState.rechargeT += dt / playerA.mods.dashRecharge;
       if (dashState.rechargeT >= DASH.recharge) {
         dashState.charges++;
         dashState.rechargeT = dashState.charges < DASH.maxCharges
@@ -478,8 +483,10 @@ function step(dt) {
       dashState.t = 0;
       _ghostEmitT = 0.16;   // ventana de emisión de la estela fantasma
       const d = b.dir();
-      b.vel.x += d.x * DASH.power;
-      b.vel.y += d.y * DASH.power;
+      // MAGIA (stat): dash más potente
+      const dashP = DASH.power * playerA.mods.dashPower;
+      b.vel.x += d.x * dashP;
+      b.vel.y += d.y * dashP;
       particles.impact(b.pos.x, b.pos.y, 320);
       sound.pop();
     }
