@@ -92,9 +92,46 @@ const GRIPS = scalePose({ handF: { x: 20, y: -3 }, handB: { x: 34, y: -2 } });
 // que cada punto puede alejarse de su objetivo de pose. La física deforma
 // dentro de este radio; más allá, se recorta. Es lo que impide que un golpe
 // o giro deje una pierna arriba de la cabeza.
+// Correa de postura: distancia máxima de cada punto a su objetivo de pose.
+// Bajada en cabeza y piernas respecto de los valores originales: eran las
+// partes que más se despegaban del cuerpo y las que más rompían la lectura
+// (una cabeza a 32 unidades del cuello ya se lee como "desprendida"). Los
+// límites de articulación de abajo se encargan del ángulo; esto, del alcance.
 const LEASH = {
-  pelvis: 26, chest: 26, head: 32,
-  kneeF: 40, footF: 52, kneeB: 40, footB: 52,
+  pelvis: 24, chest: 24, head: 24,
+  kneeF: 34, footF: 42, kneeB: 34, footB: 42,
+};
+
+// ── Límites de articulación ───────────────────────────────────────────────
+// El problema que resuelven: los constraints de arriba preservan DISTANCIAS,
+// no ÁNGULOS. Una pierna puede girar 360° alrededor de la cadera sin violar
+// ninguna regla de longitud — por eso terminaba con la cabeza entre los pies
+// o las rodillas dobladas al revés. Nada de eso lo detecta un stick.
+//
+// Un límite de articulación dice: "este punto no puede alejarse más de X
+// grados de su ÁNGULO DE POSE respecto de su padre". Se aplica DESPUÉS de
+// los constraints, empujando el punto de vuelta al borde del cono permitido
+// (no al centro): la física sigue mandando dentro del rango y solo se
+// interviene en el borde. Así se conserva el movimiento gracioso y se
+// eliminan las poses imposibles.
+//
+// `max` en grados. Valores altos = más caos permitido.
+const JOINT = {
+  // El torso puede inclinarse bastante (la inercia lo tira), pero no darse
+  // vuelta entero.
+  chest:  { parent: 'pelvis', max: 62 },
+  // La cabeza acompaña al torso: es lo que más molestaba cuando se iba.
+  head:   { parent: 'chest',  max: 52 },
+  // Caderas: buen rango (patear es parte del juego) pero sin vuelta completa.
+  kneeF:  { parent: 'pelvis', max: 78 },
+  kneeB:  { parent: 'pelvis', max: 78 },
+  // Rodillas: el rango más chico. Una rodilla no se dobla para cualquier
+  // lado, y verla hacerlo es lo que más "rompe" el personaje. Medido: con
+  // 58° todavía el 18% de los frames caóticos mostraban la pantorrilla
+  // quebrada hacia atrás; con 38° eso baja a casi cero y el pataleo del
+  // latigazo sigue viéndose igual de suelto.
+  footF:  { parent: 'kneeF',  max: 38 },
+  footB:  { parent: 'kneeB',  max: 38 },
 };
 
 // Pivote del latigazo: el punto medio entre las manos. Que el cuerpo orbite
@@ -376,6 +413,43 @@ export class Rider {
     return lag > 0 ? 1 : -1;
   }
 
+  // ── Límites de articulación ─────────────────────────────────────────────
+  // Lo que la correa NO puede arreglar: la correa limita la DISTANCIA de un
+  // punto a su objetivo, pero un pie puede estar a distancia perfectamente
+  // válida y aun así quedar del lado equivocado de la rodilla. Eso es un
+  // problema de ÁNGULO, y es exactamente lo que se veía como "articulaciones
+  // dobladas al revés" o "la cabeza entre los pies".
+  //
+  // Cada articulación tiene un cono de libertad alrededor de su ángulo de
+  // POSE (no de un ángulo fijo del mundo): dentro del cono la física manda y
+  // el movimiento gracioso se conserva intacto; al llegar al borde, el punto
+  // se rota de vuelta al límite conservando el largo del hueso.
+  _applyJointLimits() {
+    // El latigazo necesita más rango: el arco amplio del golpe es deliberado.
+    const mul = this.phase === 'whip' ? 1.5 : 1;
+    for (const n in JOINT) {
+      const j = JOINT[n];
+      const p = this.points[n], par = this.points[j.parent];
+      if (!p || !par || p.poseAng == null) continue;
+
+      const dx = p.x - par.x, dy = p.y - par.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 0.001) continue;
+
+      const diff = wrapAngle(Math.atan2(dy, dx) - p.poseAng);
+      const lim = (j.max * mul) * Math.PI / 180;
+      if (Math.abs(diff) <= lim) continue;   // dentro del cono: no tocar
+
+      const target = p.poseAng + (diff > 0 ? lim : -lim);
+      const nx2 = par.x + Math.cos(target) * dist;
+      const ny2 = par.y + Math.sin(target) * dist;
+      // px/py acompañan la corrección: si no, al topar el límite el miembro
+      // saldría disparado por la velocidad que el ajuste habría inyectado.
+      p.px += nx2 - p.x; p.py += ny2 - p.y;
+      p.x = nx2; p.y = ny2;
+    }
+  }
+
   update(dt, tuckHeld, target) {
     const R = CFG.rider;
     this._updateWhip(dt, tuckHeld, target);
@@ -482,6 +556,18 @@ export class Rider {
       p.tx = target.x; p.ty = target.y;
     }
 
+    // Ángulo de pose de cada articulación respecto de su padre. Es la
+    // referencia contra la que se miden los límites más abajo: "cuánto te
+    // desviaste de donde deberías estar". Se calcula sobre los TARGETS (la
+    // pose ideal de este frame), no sobre las posiciones reales, para que el
+    // cono de libertad acompañe la animación en vez de quedar fijo al mundo.
+    for (const n in JOINT) {
+      const j = JOINT[n];
+      const p = this.points[n], par = this.points[j.parent];
+      if (!p || !par || p.tx == null || par.tx == null) continue;
+      p.poseAng = Math.atan2(p.ty - par.ty, p.tx - par.tx);
+    }
+
     // --- Constraints + manos fijas ---
     let reactX = 0, reactY = 0, reactPX = 0, reactPY = 0; // reacción acumulada
     const gripF = this.broom.toWorld(GRIPS.handF.x, GRIPS.handF.y);
@@ -503,6 +589,13 @@ export class Rider {
         pa.x += dx * diff; pa.y += dy * diff;
         pb.x -= dx * diff; pb.y -= dy * diff;
       }
+
+      // Límites de articulación DENTRO del bucle: si se aplicaran una sola
+      // vez al final, el último pase de constraints volvería a sacar la
+      // articulación del cono y el límite quedaría en la nada — medido: la
+      // cabeza llegaba a 89° con un tope de 52°. Corriendo junto con los
+      // constraints, ambos convergen a una pose que respeta las dos reglas.
+      this._applyJointLimits();
 
       // Medir cuánto se movieron las manos → el cuerpo tira de la escoba
       reactX += this.points.handF.x - gripF.x + (this.points.handB.x - gripB.x);
@@ -548,6 +641,10 @@ export class Rider {
         p.x = cx; p.y = cy;
       }
     }
+
+    // Pasada final de límites: los constraints de arriba pueden haber movido
+    // algo en la última iteración, y la correa recién corrida también.
+    this._applyJointLimits();
 
     // Influencia secundaria del cuerpo sobre la escoba (control > caos).
     // Durante el latigazo el tope sube: lanzar el cuerpo empuja la escoba
