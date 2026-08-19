@@ -62,6 +62,13 @@ export class Renderer {
   draw(world, dtFrame) {
     this.t += dtFrame;
     this._dt = dtFrame;   // para animaciones con física propia (confetti)
+
+    // Arranque del "¡YA!": se dispara en la transición countdown→play, que es
+    // el único momento en que corresponde. Vive acá y no en el HUD porque el
+    // HUD puede no dibujarse (replay activo) y perderíamos la transición.
+    const st = world.match?.state;
+    if (st === 'play' && this._prevState === 'countdown') this._yaUntil = this.t + 0.8;
+    this._prevState = st;
     const ctx = this.ctx;
     const W = this.canvas.clientWidth, H = this.canvas.clientHeight;
 
@@ -77,10 +84,14 @@ export class Renderer {
     world.camera.applyTransform(ctx);
 
     this._map(ctx);
-    // Atmósfera y antorchas van INMEDIATAMENTE sobre el mapa: tiñen el
-    // escenario pintado, no a los personajes que vienen después.
+    // Atmósfera sobre el mapa: tiñe el escenario pintado, no a los
+    // personajes que vienen después.
+    //
+    // Los focos de antorcha se quitaron: sumaban manchas cálidas por toda la
+    // pantalla y competían con los personajes justo donde más hace falta
+    // leerlos (el amontonamiento del 2v2). El método `_torchLight` queda por
+    // si alguna vez se quiere un modo "atmosférico", pero no se llama.
     this._atmosphere(ctx);
-    this._torchLight(ctx);
     this._portalAura(ctx, -1, world);
     this._portalAura(ctx, 1, world);
     this._shadows(ctx, world);
@@ -94,6 +105,15 @@ export class Renderer {
     this._ghostTrail(ctx, world);
     // El humano se dibuja último para que nunca quede tapado por otro cuerpo
     const list = world.players || [world.playerA, world.playerB].filter(Boolean);
+
+    // ── Discos de equipo ──────────────────────────────────────────────────
+    // En 2v2 los cuatro magos se leían como manchas del mismo tamaño: el
+    // color de bando vive en detalles chicos (tabardo, faja, bufanda) que a
+    // distancia de juego se pierden entre las líneas del cuerpo y la escoba.
+    // Un disco plano bajo cada uno, del color del equipo, resuelve eso: va
+    // DEBAJO de todos los cuerpos, así el amontonamiento no lo tapa, y como
+    // es una forma sólida sin líneas no agrega ruido — al contrario, agrupa.
+    if (list.length > 2) for (const pl of list) this._teamDisc(ctx, pl, world);
     for (const pl of list) {
       if (pl === world.playerA) continue;
       const c = this._teamColors(pl);
@@ -104,12 +124,21 @@ export class Renderer {
     // y no le lave los colores al skin. Es la señal que sobrevive al desorden —
     // con la pantalla llena de partículas y dos magos encimados, el anillo en
     // el piso sigue diciendo cuál sos.
-    if (!world.botsMode) this._selfHalo(ctx, world.playerA, cA.main);
+    // En 2v2 el disco de equipo (con su aro blanco) ya dice cuál sos: sumar
+    // además el halo pulsante era una señal encima de otra, justo en el modo
+    // donde menos espacio visual hay.
+    if (!world.botsMode && list.length <= 2) this._selfHalo(ctx, world.playerA, cA.main);
     this._player(ctx, world.playerA, cA.main, cA.dark, world);
     // La flecha ahora también en 1v1: identificar tu mago de un vistazo importa
     // igual cuando hay uno solo del otro equipo, sobre todo tras un gol cuando
     // la explosión manda a todos por el aire.
     if (!world.botsMode) this._selfMarker(ctx, world.playerA, cA.main);
+    // Banderines DESPUÉS de los cuerpos: tienen que asomar por encima del
+    // montón, que es justo cuando el disco del piso queda tapado. El del
+    // humano no se dibuja porque ya tiene su flecha propia.
+    if (list.length > 2) {
+      for (const pl of list) if (pl !== world.playerA) this._teamPennant(ctx, pl, world);
+    }
     this._ball(ctx, world.ball);
     // Anillos de choque: en espacio de mundo, encima de todo lo que golpean
     this._shockRings(ctx);
@@ -468,6 +497,99 @@ export class Renderer {
     ctx.globalCompositeOperation = 'screen';
     ctx.drawImage(this._lightCv, 0, 0, W, H);
     ctx.restore();
+  }
+
+  // ── Disco de equipo (solo 2v2+) ───────────────────────────────────────
+  // Elipse rasante bajo cada mago, del color de su bando. Tres decisiones
+  // que la hacen funcionar donde el color del traje no alcanza:
+  //  · va DEBAJO de todos los cuerpos → el amontonamiento no la tapa
+  //  · es una forma SÓLIDA sin líneas → no suma al ruido de trazos
+  //  · el compañero lleva un anillo extra → distinguís tu dupla de vos mismo
+  _teamDisc(ctx, pl, world) {
+    const b = pl.broom;
+    const c = this._teamColors(pl);
+    const yo = pl === world.playerA;
+    const rx = 42 * S, ry = rx * 0.30;
+    const y = b.pos.y + 30 * S;
+
+    ctx.save();
+    ctx.translate(b.pos.x, y);
+    ctx.scale(1, ry / rx);
+
+    // Halo exterior difuso: da presencia sin borde duro
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+    g.addColorStop(0, c.main);
+    g.addColorStop(0.5, c.main);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, rx, 0, 7);
+    ctx.fill();
+
+    // Núcleo sólido: es lo que de verdad se lee de lejos. Sin él el disco
+    // era tan suave que desaparecía bajo los cuerpos.
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = c.main;
+    ctx.beginPath();
+    ctx.arc(0, 0, rx * 0.5, 0, 7);
+    ctx.fill();
+
+    // Contorno oscuro: separa el disco del césped en cualquier fondo
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = 'rgba(12,8,24,0.9)';
+    ctx.lineWidth = 2.6 * S;
+    ctx.beginPath();
+    ctx.arc(0, 0, rx * 0.5, 0, 7);
+    ctx.stroke();
+
+    // El humano lleva un aro blanco: entre dos discos del mismo color, este
+    // dice cuál sos vos.
+    if (yo) {
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath();
+      ctx.arc(0, 0, rx * 0.78, 0, 7);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Banderín de equipo ────────────────────────────────────────────────
+  // Segunda señal, arriba del mago: un triángulo del color del bando. El
+  // disco resuelve "de qué equipo es" cuando lo ves entero; esto lo resuelve
+  // cuando el cuerpo está tapado por otro, porque asoma por encima del
+  // montón. Dos señales en lugares opuestos = siempre queda una visible.
+  _teamPennant(ctx, pl, world) {
+    const b = pl.broom;
+    const c = this._teamColors(pl);
+    const yo = pl === world.playerA;
+    const x = b.pos.x;
+    const y = b.pos.y - 58 * S;
+    const s = (yo ? 9 : 7) * S;
+
+    ctx.save();
+    ctx.globalAlpha = yo ? 0.95 : 0.8;
+    // contorno
+    ctx.fillStyle = 'rgba(12,8,24,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(x, y + s * 1.5);
+    ctx.lineTo(x - s * 1.15, y - s * 0.5);
+    ctx.lineTo(x + s * 1.15, y - s * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    // cuerpo
+    ctx.fillStyle = c.main;
+    ctx.beginPath();
+    ctx.moveTo(x, y + s * 1.1);
+    ctx.lineTo(x - s * 0.82, y - s * 0.35);
+    ctx.lineTo(x + s * 0.82, y - s * 0.35);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   // ── Anillos de choque ─────────────────────────────────────────────────
@@ -2209,8 +2331,14 @@ export class Renderer {
         ctx.fillStyle = 'rgba(210,200,240,0.6)';
         ctx.fillText(t.cfg.frase, cx, H * 0.4 + 120);
       }
-    } else if (m.state === 'play' && m.timeLeft > this.durationMinusYa(m) && !m.golden) {
-      // "¡YA!" breve al iniciar
+    } else if (m.state === 'play' && this._yaUntil > this.t && !m.golden) {
+      // "¡YA!" breve al iniciar.
+      //
+      // Antes esto se deducía del reloj (`timeLeft > duration - 0.8`), y en
+      // los modos donde el reloj NO corre —por goles y práctica— la condición
+      // nunca dejaba de cumplirse: el cartel quedaba clavado en pantalla todo
+      // el partido. Ahora es un temporizador propio, que arranca en la
+      // transición countdown→play y no depende de cómo termine el partido.
       ctx.font = 'bold 110px Georgia, serif';
       ctx.fillStyle = 'rgba(255,235,150,0.9)';
       ctx.shadowColor = 'rgba(255,200,80,0.8)';

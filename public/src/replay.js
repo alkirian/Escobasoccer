@@ -19,14 +19,20 @@ const REPLAY = {
   showSeconds: 2.2,
   fps:       30,     // resolución temporal del buffer
   speed:     0.55,   // velocidad de reproducción (cámara lenta suave)
-  zoom:      1.55,   // acercamiento respecto del zoom normal
+  // Acercamiento respecto del zoom normal. Bajado de 1.55: con ese valor la
+  // boca del arco no entraba entera en cuadro y el gol —lo único que la
+  // repetición tiene que mostrar— quedaba fuera de pantalla.
+  zoom:      1.18,
   camLerp:   6.5,    // suavizado del seguimiento de cámara
   // Cuánto se puede adelantar la cámara respecto del foco cuando la pelota va
   // rápido. Sin esto, en un tiro fuerte la cámara persigue por detrás y el gol
   // entra fuera de cuadro — medido: 1200 unidades de atraso con 853 de medio
   // ancho visible.
   leadTime:  0.22,
-  ballBias:  0.55,   // 0 = mira al jugador, 1 = mira a la pelota
+  // 0 = mira al jugador, 1 = mira a la pelota. Casi todo a la pelota: la
+  // jugada ES la pelota, y promediar con el jugador dejaba la cámara a mitad
+  // de camino entre los dos justo cuando el tiro salía disparado al arco.
+  ballBias:  0.88,
   introHold: 0.25,   // pausa al arrancar, antes de que corra la acción
   outroHold: 0.9,    // pausa al final, congelado sobre el gol
 };
