@@ -1503,6 +1503,1416 @@ function trailZefir(particles, x, y, dirX, dirY, power, boost, color) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// PETRA — La Montaña (tanque)
+// Silueta: una mole. Rocas apiladas con musgo, núcleo de cristal del equipo
+// latiendo en el pecho, brotecito en la cabeza. La escoba es una columna de
+// piedra con esquirlas levitando de cola. Todo en ella dice "no me muevas".
+// ══════════════════════════════════════════════════════════════════════════
+const PETRA = {
+  id: 'petra', nombre: 'Petra', titulo: 'la Montaña', rol: 'Tanque',
+  bio: 'Una golem que aprendió a volar por pura terquedad: la piedra no ' +
+       'flota, pero nadie se lo dijo a tiempo. Lenta para hablar, imposible ' +
+       'de frenar.',
+  palettes: {
+    base: { STONE: '#8d8a96', STONE_D: '#5f5c6a', MOSS: '#5a7a4a' },
+  },
+  draw(ctx, r, player, color, dark, world, fx) {
+    const p = player.rider.points, b = player.broom, cape = player.rider.cape;
+    const { STONE, STONE_D, MOSS } = this.palettes.base;
+    const boost = b.boostPower || 0;
+
+    // Escombros orbitando la espalda (la cadena de la capa): pedruscos
+    // angulares que giran lento — a Petra la siguen pedazos de sí misma.
+    for (let i = 1; i < cape.length; i++) {
+      const rad = (5.5 - i * 0.6) * S;
+      if (rad <= 1) continue;
+      const rot = r.t * (0.8 + i * 0.3) + i * 2;
+      ctx.save();
+      ctx.translate(cape[i].x, cape[i].y + Math.sin(r.t * 2 + i) * 3 * S);
+      ctx.rotate(rot);
+      ctx.globalAlpha = 0.85 - i * 0.1;
+      ctx.fillStyle = r._ink;
+      ctx.fillRect(-rad - 1.2 * S, -rad - 1.2 * S, rad * 2 + 2.4 * S, rad * 2 + 2.4 * S);
+      ctx.fillStyle = i % 2 ? STONE : STONE_D;
+      ctx.fillRect(-rad, -rad, rad * 2, rad * 2);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+
+    // Miembros: los más gruesos del plantel
+    r._limb(ctx, p.pelvis, p.kneeB, p.footB, 12.5 * S, STONE_D);
+    r._limbSeg(ctx, p.chest, p.handB, 11 * S, STONE_D);
+
+    // Escoba-columna: piedra tallada con bandas, cola de esquirlas
+    // levitantes y un cristal del equipo en la punta.
+    broomBase(ctx, r, b, {
+      wood: STONE, woodDark: STONE_D, woodLight: r._shade(STONE, 22), w: 10,
+      bind: STONE_D,
+      bristles: (c, x, y, d, nx, ny) => {
+        // esquirlas flotando en abanico, sin tocar el palo
+        for (let i = -2; i <= 2; i++) {
+          const a = b.angle + Math.PI + i * 0.22;
+          const dist = (16 + Math.abs(i) * 4 + Math.sin(r.t * 2.4 + i * 2) * 3) * S;
+          const ex = x + Math.cos(a) * dist, ey = y + Math.sin(a) * dist;
+          const sz = (4.5 - Math.abs(i)) * S;
+          c.save();
+          c.translate(ex, ey);
+          c.rotate(r.t * 1.5 + i);
+          c.fillStyle = r._ink;
+          c.fillRect(-sz - S, -sz - S, sz * 2 + 2 * S, sz * 2 + 2 * S);
+          c.fillStyle = i % 2 ? STONE : STONE_D;
+          c.fillRect(-sz, -sz, sz * 2, sz * 2);
+          c.restore();
+        }
+      },
+      tip: (c, tip, d, nx, ny) => {
+        const pulse = 0.6 + 0.4 * Math.sin(r.t * 3) + boost * 0.4;
+        c.fillStyle = r._ink;
+        c.beginPath();
+        c.moveTo(tip.x + d.x * 9 * S, tip.y + d.y * 9 * S);
+        c.lineTo(tip.x + nx * 5 * S, tip.y + ny * 5 * S);
+        c.lineTo(tip.x - d.x * 4 * S, tip.y - d.y * 4 * S);
+        c.lineTo(tip.x - nx * 5 * S, tip.y - ny * 5 * S);
+        c.closePath(); c.fill();
+        c.fillStyle = color;
+        c.shadowColor = color;
+        c.shadowBlur = 8 * pulse;
+        c.beginPath();
+        c.moveTo(tip.x + d.x * 7 * S, tip.y + d.y * 7 * S);
+        c.lineTo(tip.x + nx * 3.4 * S, tip.y + ny * 3.4 * S);
+        c.lineTo(tip.x - d.x * 2.6 * S, tip.y - d.y * 2.6 * S);
+        c.lineTo(tip.x - nx * 3.4 * S, tip.y - ny * 3.4 * S);
+        c.closePath(); c.fill();
+        c.shadowBlur = 0;
+      },
+    });
+
+    r._limb(ctx, p.pelvis, p.kneeF, p.footF, 13.5 * S, STONE);
+
+    // Torso: canto rodado gigante con grietas, musgo y el NÚCLEO del equipo
+    {
+      const A = axis(p.pelvis, p.chest);
+      const HW = 17 * S;
+      const path = () => {
+        ctx.beginPath();
+        ctx.ellipse(
+          (p.pelvis.x + p.chest.x) / 2, (p.pelvis.y + p.chest.y) / 2,
+          HW, A.len * 0.72 + 6 * S, Math.atan2(A.uy, A.ux) + Math.PI / 2, 0, TAU);
+      };
+      path();
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 3.6 * S; ctx.stroke();
+      const g = ctx.createLinearGradient(
+        p.chest.x + A.px * HW, p.chest.y + A.py * HW,
+        p.chest.x - A.px * HW, p.chest.y - A.py * HW);
+      g.addColorStop(0, r._shade(STONE, 20));
+      g.addColorStop(1, STONE_D);
+      path(); ctx.fillStyle = g; ctx.fill();
+      // grietas: se encienden del color del equipo al acelerar
+      ctx.strokeStyle = boost > 0.2 ? color : r._shade(STONE_D, -20);
+      ctx.globalAlpha = 0.5 + boost * 0.5;
+      ctx.lineWidth = 1.4 * S;
+      for (const [f, side, len] of [[0.7, 0.5, 7], [0.35, -0.6, 9], [0.15, 0.3, 6]]) {
+        const cx2 = lerp(p.pelvis.x, p.chest.x, f) + A.px * side * HW * 0.6;
+        const cy2 = lerp(p.pelvis.y, p.chest.y, f) + A.py * side * HW * 0.6;
+        ctx.beginPath();
+        ctx.moveTo(cx2, cy2);
+        ctx.lineTo(cx2 + A.px * side * len * S * 0.4 - A.ux * len * S * 0.5,
+                   cy2 + A.py * side * len * S * 0.4 - A.uy * len * S * 0.5);
+        ctx.lineTo(cx2 + A.px * side * len * S * 0.7 - A.ux * len * S * 0.9,
+                   cy2 + A.py * side * len * S * 0.7 - A.uy * len * S * 0.9);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      // musgo: manchas orgánicas en el hombro de atrás
+      ctx.fillStyle = MOSS;
+      ctx.globalAlpha = 0.85;
+      for (const [f, side, sz] of [[0.85, -0.5, 5], [0.75, -0.75, 3.4], [0.9, -0.2, 2.6]]) {
+        ctx.beginPath();
+        ctx.arc(lerp(p.pelvis.x, p.chest.x, f) + A.px * side * HW * 0.7,
+                lerp(p.pelvis.y, p.chest.y, f) + A.py * side * HW * 0.7, sz * S, 0, TAU);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      // núcleo: cristal del equipo latiendo en el pecho
+      const pulse = 0.65 + 0.35 * Math.sin(r.t * 2.6) + boost * 0.3;
+      const nx2 = lerp(p.pelvis.x, p.chest.x, 0.62), ny2 = lerp(p.pelvis.y, p.chest.y, 0.62);
+      ctx.save();
+      ctx.translate(nx2, ny2);
+      ctx.rotate(Math.atan2(A.uy, A.ux));
+      ctx.fillStyle = r._ink;
+      ctx.beginPath();
+      ctx.moveTo(6.6 * S, 0); ctx.lineTo(0, 5 * S); ctx.lineTo(-6.6 * S, 0); ctx.lineTo(0, -5 * S);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 12 * pulse;
+      ctx.beginPath();
+      ctx.moveTo(5 * S, 0); ctx.lineTo(0, 3.6 * S); ctx.lineTo(-5 * S, 0); ctx.lineTo(0, -3.6 * S);
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    r._limbSeg(ctx, p.chest, p.handF, 12 * S, STONE);
+
+    // Puños de roca, más grandes que los de cualquiera
+    for (const [h, rad] of [[p.handF, 8], [p.handB, 7]]) {
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.arc(h.x, h.y, rad * S + 1.6 * S, 0, TAU); ctx.fill();
+      ctx.fillStyle = STONE;
+      ctx.beginPath(); ctx.arc(h.x, h.y, rad * S, 0, TAU); ctx.fill();
+      ctx.strokeStyle = STONE_D;
+      ctx.lineWidth = 1.2 * S;
+      ctx.beginPath(); ctx.arc(h.x, h.y, rad * 0.55 * S, -0.8, 1.2); ctx.stroke();
+    }
+
+    // Cabeza: peñasco con ceja de piedra, ojos del equipo en cuencas
+    // profundas, boca-grieta y un BROTE verde creciendo arriba.
+    {
+      const head = p.head, chest = p.chest;
+      const A = axis(chest, head);
+      const R = 11.5 * S;
+      const fxx = A.px * fx.facing, fyy = A.py * fx.facing;
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R + 1.6 * S, 0, TAU); ctx.fill();
+      const gf = ctx.createLinearGradient(
+        head.x + A.ux * R, head.y + A.uy * R,
+        head.x - A.ux * R, head.y - A.uy * R);
+      gf.addColorStop(0, r._shade(STONE, 16));
+      gf.addColorStop(1, STONE_D);
+      ctx.fillStyle = gf;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R, 0, TAU); ctx.fill();
+      // ceja: losa de piedra sobre los ojos
+      ctx.strokeStyle = STONE_D;
+      ctx.lineWidth = 4 * S;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(head.x + fxx * R * 0.75 + A.ux * R * 0.35, head.y + fyy * R * 0.75 + A.uy * R * 0.35);
+      ctx.lineTo(head.x - fxx * R * 0.1 + A.ux * R * 0.45, head.y - fyy * R * 0.1 + A.uy * R * 0.45);
+      ctx.stroke();
+      // ojos: puntos del equipo en cuencas oscuras (cruces al aturdirse)
+      if (fx.slam > 0.05) {
+        eyes(ctx, r, head, A.ux, A.uy, fx, { R: 11.5 });
+      } else {
+        for (const sgn of [0.5, -0.5]) {
+          const ex = head.x + fxx * R * 0.42 + A.ux * R * sgn * 0.45;
+          const ey = head.y + fyy * R * 0.42 + A.uy * R * sgn * 0.45;
+          ctx.fillStyle = '#191623';
+          ctx.beginPath(); ctx.arc(ex, ey, 2.8 * S, 0, TAU); ctx.fill();
+          ctx.fillStyle = color;
+          ctx.shadowColor = color; ctx.shadowBlur = 5;
+          ctx.beginPath(); ctx.arc(ex, ey, 1.3 * S, 0, TAU); ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+      }
+      // boca: grieta horizontal seria
+      ctx.strokeStyle = r._shade(STONE_D, -24);
+      ctx.lineWidth = 1.4 * S;
+      ctx.beginPath();
+      ctx.moveTo(head.x + fxx * R * 0.55 - A.ux * R * 0.4, head.y + fyy * R * 0.55 - A.uy * R * 0.4);
+      ctx.lineTo(head.x + fxx * R * 0.2 - A.ux * R * 0.42, head.y + fyy * R * 0.2 - A.uy * R * 0.42);
+      ctx.stroke();
+      // brote: dos hojitas en la coronilla — la montaña está viva
+      const bx = head.x + A.ux * (R + 1 * S), by = head.y + A.uy * (R + 1 * S);
+      ctx.strokeStyle = '#4a7a3a';
+      ctx.lineWidth = 1.6 * S;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + A.ux * 5 * S, by + A.uy * 5 * S);
+      ctx.stroke();
+      ctx.fillStyle = MOSS;
+      for (const side of [1, -1]) {
+        ctx.beginPath();
+        ctx.ellipse(bx + A.ux * 5.5 * S + A.px * side * 3 * S,
+                    by + A.uy * 5.5 * S + A.py * side * 3 * S,
+                    3.4 * S, 1.7 * S,
+                    Math.atan2(A.py, A.px) + side * 0.5, 0, TAU);
+        ctx.fill();
+      }
+    }
+  },
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// HILARIA — La Tejedora (abuela bruja)
+// Silueta: rodete blanco con agujas de tejer clavadas, anteojos, chal a
+// cuadros y una hebra de lana del color del equipo que arrastra un OVILLO.
+// Dulzura letal: la escoba más prolija del plantel.
+// ══════════════════════════════════════════════════════════════════════════
+const HILARIA = {
+  id: 'hilaria', nombre: 'Hilaria', titulo: 'la Tejedora', rol: 'Abuela bruja',
+  bio: 'Tejió su primera bufanda hace doscientos años y todavía no paró. Te ' +
+       'sirve el té, te pregunta por tu madre y te clava tres goles con la ' +
+       'misma sonrisa.',
+  palettes: {
+    base: { SHAWL: '#a34f5f', SHAWL_D: '#7a3a48', DRESS: '#4a4e6e', HAIR: '#e8e2d0' },
+  },
+  draw(ctx, r, player, color, dark, world, fx) {
+    const p = player.rider.points, b = player.broom, cape = player.rider.cape;
+    const { SHAWL, SHAWL_D, DRESS, HAIR } = this.palettes.base;
+
+    // Lana: una hebra del color del equipo que termina en un ovillo que se
+    // hamaca. Nadie más arrastra su tejido por la cancha.
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = r._ink;
+    ctx.lineWidth = 3.4 * S;
+    ctx.beginPath();
+    ctx.moveTo(cape[0].x, cape[0].y);
+    for (let i = 1; i < cape.length; i++) {
+      ctx.lineTo(cape[i].x, cape[i].y + Math.sin(r.t * 5 + i * 1.4) * 2.4 * S);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.9 * S;
+    ctx.beginPath();
+    ctx.moveTo(cape[0].x, cape[0].y);
+    for (let i = 1; i < cape.length; i++) {
+      ctx.lineTo(cape[i].x, cape[i].y + Math.sin(r.t * 5 + i * 1.4) * 2.4 * S);
+    }
+    ctx.stroke();
+    // el ovillo
+    const ov = cape[cape.length - 1];
+    ctx.fillStyle = r._ink;
+    ctx.beginPath(); ctx.arc(ov.x, ov.y, 6.6 * S, 0, TAU); ctx.fill();
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(ov.x, ov.y, 5.4 * S, 0, TAU); ctx.fill();
+    ctx.strokeStyle = r._shade(color, -40);
+    ctx.lineWidth = 0.9 * S;
+    for (const a of [0.4, 1.6, 2.7]) {
+      ctx.beginPath();
+      ctx.arc(ov.x, ov.y, 4.4 * S, a, a + 2.2);
+      ctx.stroke();
+    }
+
+    // Piernas con medias oscuras, finitas (la pollera tapa los muslos)
+    r._limb(ctx, p.pelvis, p.kneeB, p.footB, 6.5 * S, r._shade(DRESS, -26));
+    r._limbSeg(ctx, p.chest, p.handB, 6.5 * S, SHAWL_D);
+
+    // La escoba ORIGINAL, cuidada 60 años: palo lustrado, ramas parejas
+    // recortadas al ras, moño del equipo en la atadura y una tetera colgando.
+    broomBase(ctx, r, b, {
+      wood: '#8a5a2b', woodDark: '#5d3a17', woodLight: '#b98a4e', w: 6.5,
+      rings: '#c9a04e', ringAt: [0.42],
+      bristles: (c, x, y, d, nx, ny) => {
+        // abanico PERFECTO: mismo largo, mismo espaciado (está orgullosa)
+        c.strokeStyle = '#c9a04e';
+        c.lineWidth = 2.6 * S;
+        for (let i = -3; i <= 3; i++) {
+          const a = b.angle + Math.PI + i * 0.11;
+          c.beginPath();
+          c.moveTo(x, y);
+          c.lineTo(x + Math.cos(a) * 26 * S, y + Math.sin(a) * 26 * S);
+          c.stroke();
+        }
+        // corte parejo: arco que une las puntas
+        c.strokeStyle = '#a8843e';
+        c.lineWidth = 1.4 * S;
+        c.beginPath();
+        c.arc(x, y, 26 * S, b.angle + Math.PI - 0.36, b.angle + Math.PI + 0.36);
+        c.stroke();
+        // moño del equipo en la atadura
+        const bx2 = x + d.x * 2 * S, by2 = y + d.y * 2 * S;
+        c.fillStyle = color;
+        for (const side of [1, -1]) {
+          c.beginPath();
+          c.moveTo(bx2, by2);
+          c.lineTo(bx2 + nx * side * 6 * S - d.x * 3 * S, by2 + ny * side * 6 * S - d.y * 3 * S);
+          c.lineTo(bx2 + nx * side * 5 * S + d.x * 2 * S, by2 + ny * side * 5 * S + d.y * 2 * S);
+          c.closePath(); c.fill();
+        }
+        c.beginPath(); c.arc(bx2, by2, 1.8 * S, 0, TAU); c.fill();
+        // tetera colgando, hamacándose
+        const sw = Math.sin(r.t * 2.8) * 0.4;
+        const tx2 = x + d.x * 14 * S + nx * (11 * S + sw * 4 * S);
+        const ty2 = y + d.y * 14 * S + ny * (11 * S + sw * 4 * S);
+        c.strokeStyle = '#7a6a4e';
+        c.lineWidth = 0.9 * S;
+        c.beginPath();
+        c.moveTo(x + d.x * 14 * S, y + d.y * 14 * S);
+        c.lineTo(tx2, ty2);
+        c.stroke();
+        c.fillStyle = r._ink;
+        c.beginPath(); c.ellipse(tx2, ty2, 4.6 * S, 3.6 * S, 0, 0, TAU); c.fill();
+        c.fillStyle = '#d8cdb0';
+        c.beginPath(); c.ellipse(tx2, ty2, 3.6 * S, 2.8 * S, 0, 0, TAU); c.fill();
+        c.strokeStyle = '#d8cdb0';
+        c.lineWidth = 1.2 * S;
+        c.beginPath(); c.arc(tx2 - 4.4 * S, ty2, 2 * S, 0.6, 4.2); c.stroke();
+      },
+    });
+
+    r._limb(ctx, p.pelvis, p.kneeF, p.footF, 7 * S, r._shade(DRESS, -20));
+
+    // Vestido con POLLERA acampanada que tapa los muslos + chal a cuadros
+    {
+      const A = axis(p.pelvis, p.chest);
+      const HW_C = 10 * S, HW_H = 13 * S;
+      // pollera: campana que baja de la pelvis hacia las rodillas
+      const kx = (p.kneeF.x + p.kneeB.x) / 2, ky = (p.kneeF.y + p.kneeB.y) / 2;
+      ctx.beginPath();
+      ctx.moveTo(p.pelvis.x + A.px * HW_H, p.pelvis.y + A.py * HW_H);
+      ctx.quadraticCurveTo(
+        kx + A.px * 15 * S, ky + A.py * 15 * S,
+        kx + A.px * 12 * S - A.ux * 4 * S, ky + A.py * 12 * S - A.uy * 4 * S);
+      ctx.lineTo(kx - A.px * 12 * S - A.ux * 4 * S, ky - A.py * 12 * S - A.uy * 4 * S);
+      ctx.quadraticCurveTo(
+        kx - A.px * 15 * S, ky - A.py * 15 * S,
+        p.pelvis.x - A.px * HW_H, p.pelvis.y - A.py * HW_H);
+      ctx.closePath();
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 2.8 * S; ctx.lineJoin = 'round'; ctx.stroke();
+      ctx.fillStyle = DRESS;
+      ctx.fill();
+      // tablas de la pollera
+      ctx.strokeStyle = r._shade(DRESS, -22);
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1.2 * S;
+      for (const f of [-0.5, 0, 0.5]) {
+        ctx.beginPath();
+        ctx.moveTo(p.pelvis.x + A.px * f * HW_H * 0.8, p.pelvis.y + A.py * f * HW_H * 0.8);
+        ctx.lineTo(kx + A.px * f * 13 * S - A.ux * 3 * S, ky + A.py * f * 13 * S - A.uy * 3 * S);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      // corpiño del vestido
+      const path = () => {
+        ctx.beginPath();
+        ctx.moveTo(p.chest.x + A.px * HW_C, p.chest.y + A.py * HW_C);
+        ctx.lineTo(p.chest.x - A.px * HW_C, p.chest.y - A.py * HW_C);
+        ctx.lineTo(p.pelvis.x - A.px * HW_H, p.pelvis.y - A.py * HW_H);
+        ctx.lineTo(p.pelvis.x + A.px * HW_H, p.pelvis.y + A.py * HW_H);
+        ctx.closePath();
+      };
+      path();
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 3 * S; ctx.stroke();
+      const g = ctx.createLinearGradient(
+        p.chest.x + A.px * HW_C, p.chest.y + A.py * HW_C,
+        p.chest.x - A.px * HW_C, p.chest.y - A.py * HW_C);
+      g.addColorStop(0, r._shade(DRESS, 18));
+      g.addColorStop(1, r._shade(DRESS, -22));
+      path(); ctx.fillStyle = g; ctx.fill();
+      // chal a cuadros sobre los hombros, con flecos
+      const shawl = () => {
+        ctx.beginPath();
+        ctx.moveTo(p.chest.x + A.px * (HW_C + 3 * S), p.chest.y + A.py * (HW_C + 3 * S));
+        ctx.lineTo(p.chest.x - A.px * (HW_C + 3 * S), p.chest.y - A.py * (HW_C + 3 * S));
+        ctx.lineTo(lerp(p.pelvis.x, p.chest.x, 0.45) - A.px * HW_C * 0.8,
+                   lerp(p.pelvis.y, p.chest.y, 0.45) - A.py * HW_C * 0.8);
+        ctx.lineTo(lerp(p.pelvis.x, p.chest.x, 0.45) + A.px * HW_C * 0.8,
+                   lerp(p.pelvis.y, p.chest.y, 0.45) + A.py * HW_C * 0.8);
+        ctx.closePath();
+      };
+      shawl();
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 2.4 * S; ctx.stroke();
+      shawl(); ctx.fillStyle = SHAWL; ctx.fill();
+      // cuadros del tejido
+      ctx.strokeStyle = SHAWL_D;
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 1 * S;
+      for (const f of [0.55, 0.75, 0.95]) {
+        const lx = lerp(p.pelvis.x, p.chest.x, f), ly = lerp(p.pelvis.y, p.chest.y, f);
+        ctx.beginPath();
+        ctx.moveTo(lx + A.px * HW_C, ly + A.py * HW_C);
+        ctx.lineTo(lx - A.px * HW_C, ly - A.py * HW_C);
+        ctx.stroke();
+      }
+      for (const s2 of [-0.5, 0, 0.5]) {
+        ctx.beginPath();
+        ctx.moveTo(p.chest.x + A.px * s2 * HW_C, p.chest.y + A.py * s2 * HW_C);
+        ctx.lineTo(lerp(p.pelvis.x, p.chest.x, 0.45) + A.px * s2 * HW_C * 0.8,
+                   lerp(p.pelvis.y, p.chest.y, 0.45) + A.py * s2 * HW_C * 0.8);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      // broche del equipo cerrando el chal
+      const brx = lerp(p.pelvis.x, p.chest.x, 0.8) + A.px * fx.facing * 4 * S;
+      const bry = lerp(p.pelvis.y, p.chest.y, 0.8) + A.py * fx.facing * 4 * S;
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.arc(brx, bry, 3.6 * S, 0, TAU); ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(brx, bry, 2.6 * S, 0, TAU); ctx.fill();
+    }
+
+    r._limbSeg(ctx, p.chest, p.handF, 7 * S, SHAWL);
+
+    // Manos con guantes de encaje (mitones)
+    fists(ctx, r, p, '#d8cdb0');
+
+    // Cabeza: rodete con agujas, anteojos, cachetes rosados, sonrisa dulce
+    {
+      const head = p.head, chest = p.chest;
+      const A = axis(chest, head);
+      const R = 10.5 * S;
+      const fxx = A.px * fx.facing, fyy = A.py * fx.facing;
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R + 1.4 * S, 0, TAU); ctx.fill();
+      const gf = ctx.createLinearGradient(
+        head.x + A.ux * R, head.y + A.uy * R,
+        head.x - A.ux * R, head.y - A.uy * R);
+      gf.addColorStop(0, r._shade(CFG.colors.skin, 22));
+      gf.addColorStop(1, r._shade(CFG.colors.skin, -16));
+      ctx.fillStyle = gf;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R, 0, TAU); ctx.fill();
+      // pelo blanco: casquete + RODETE arriba-atrás
+      ctx.fillStyle = r._ink;
+      ctx.beginPath();
+      ctx.arc(head.x + A.ux * R * 0.35 - fxx * R * 0.3, head.y + A.uy * R * 0.35 - fyy * R * 0.3,
+              R * 0.95, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = HAIR;
+      ctx.beginPath();
+      ctx.arc(head.x + A.ux * R * 0.35 - fxx * R * 0.32, head.y + A.uy * R * 0.35 - fyy * R * 0.32,
+              R * 0.84, 0, TAU);
+      ctx.fill();
+      // frente despejada (recorte de cara sobre el pelo)
+      ctx.fillStyle = gf;
+      ctx.beginPath();
+      ctx.arc(head.x + fxx * R * 0.28, head.y + fyy * R * 0.28, R * 0.82, 0, TAU);
+      ctx.fill();
+      const bunX = head.x + A.ux * R * 1.05 - fxx * R * 0.55;
+      const bunY = head.y + A.uy * R * 1.05 - fyy * R * 0.55;
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.arc(bunX, bunY, 6 * S, 0, TAU); ctx.fill();
+      ctx.fillStyle = HAIR;
+      ctx.beginPath(); ctx.arc(bunX, bunY, 4.9 * S, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#c8c0ae';
+      ctx.lineWidth = 0.8 * S;
+      ctx.beginPath(); ctx.arc(bunX, bunY, 3.2 * S, 0.5, 3.6); ctx.stroke();
+      // agujas de tejer cruzadas en el rodete
+      ctx.strokeStyle = '#8a5a2b';
+      ctx.lineWidth = 1.6 * S;
+      ctx.lineCap = 'round';
+      for (const a of [-0.5, 0.6]) {
+        const ang = Math.atan2(A.uy, A.ux) + a;
+        ctx.beginPath();
+        ctx.moveTo(bunX - Math.cos(ang) * 6 * S, bunY - Math.sin(ang) * 6 * S);
+        ctx.lineTo(bunX + Math.cos(ang) * 11 * S, bunY + Math.sin(ang) * 11 * S);
+        ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(bunX + Math.cos(ang) * 11 * S, bunY + Math.sin(ang) * 11 * S, 1.6 * S, 0, TAU);
+        ctx.fill();
+      }
+      // ojos + anteojos redondos con brillo
+      eyes(ctx, r, head, A.ux, A.uy, fx, { R: 10.5 });
+      ctx.strokeStyle = '#c9a04e';
+      ctx.lineWidth = 1.1 * S;
+      const eb = { x: head.x + fxx * R * 0.34 + A.ux * R * 0.12,
+                   y: head.y + fyy * R * 0.34 + A.uy * R * 0.12 };
+      const sep = R * 0.30;
+      for (const sgn of [0.55, -0.55]) {
+        ctx.beginPath();
+        ctx.arc(eb.x + A.ux * sep * sgn + fxx * sep * 0.28,
+                eb.y + A.uy * sep * sgn + fyy * sep * 0.28, R * 0.32, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(eb.x + A.ux * sep * 0.25, eb.y + A.uy * sep * 0.25);
+      ctx.lineTo(eb.x - A.ux * sep * 0.25, eb.y - A.uy * sep * 0.25);
+      ctx.stroke();
+      // cachetes rosados + sonrisa
+      ctx.fillStyle = 'rgba(230,120,120,0.35)';
+      ctx.beginPath();
+      ctx.arc(head.x + fxx * R * 0.55 - A.ux * R * 0.15, head.y + fyy * R * 0.55 - A.uy * R * 0.15,
+              R * 0.2, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = '#a15a4a';
+      ctx.lineWidth = 1.3 * S;
+      ctx.beginPath();
+      ctx.arc(head.x + fxx * R * 0.36 - A.ux * R * 0.34, head.y + fyy * R * 0.36 - A.uy * R * 0.34,
+              R * 0.26, Math.atan2(fyy, fxx) - 0.6, Math.atan2(fyy, fxx) + 0.9);
+      ctx.stroke();
+      // arito de perla
+      ctx.fillStyle = '#f2eee2';
+      ctx.beginPath();
+      ctx.arc(head.x - fxx * R * 0.85, head.y - fyy * R * 0.85 - A.uy * R * 0.05, 1.5 * S, 0, TAU);
+      ctx.fill();
+    }
+  },
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// VENDAVAL — El Capitán (corsario del cielo)
+// Silueta: tricornio + barba trenzada + una VELA del equipo aparejada en la
+// escoba que se infla con la velocidad. Loro en el hombro. Ruido, botín y
+// coordenadas gritadas que nadie entiende.
+// ══════════════════════════════════════════════════════════════════════════
+const VENDAVAL = {
+  id: 'vendaval', nombre: 'Vendaval', titulo: 'el Capitán', rol: 'Corsario del cielo',
+  bio: 'Perdió el barco en una apuesta y el ojo en otra. La escoba fue la ' +
+       'tercera apuesta — esa la ganó. Grita coordenadas que nadie entiende, ' +
+       'ni él.',
+  palettes: {
+    base: { COAT: '#8a2f36', COAT_D: '#5e1f26', GOLD: '#d8a848', SHIRT: '#e8e0cc', BEARD: '#3a2a20' },
+  },
+  draw(ctx, r, player, color, dark, world, fx) {
+    const p = player.rider.points, b = player.broom, cape = player.rider.cape;
+    const { COAT, COAT_D, GOLD, SHIRT, BEARD } = this.palettes.base;
+    const spd = Math.hypot(b.vel.x, b.vel.y);
+
+    // Faldón del abrigo flameando (la cadena de la capa), con ribete dorado
+    const coatPath = (off) => {
+      ctx.beginPath();
+      ctx.moveTo(cape[0].x, cape[0].y);
+      for (let i = 1; i < cape.length; i++) {
+        const w = (11 - i * 1.3) * S;
+        ctx.lineTo(cape[i].x, cape[i].y + w + off);
+      }
+      for (let i = cape.length - 1; i >= 0; i--) {
+        const w = (11 - i * 1.3) * S;
+        ctx.lineTo(cape[i].x, cape[i].y - w + off);
+      }
+      ctx.closePath();
+    };
+    coatPath(0);
+    ctx.strokeStyle = r._ink; ctx.lineWidth = 2.8 * S; ctx.lineJoin = 'round'; ctx.stroke();
+    const gc = ctx.createLinearGradient(cape[0].x, cape[0].y,
+      cape[cape.length - 1].x, cape[cape.length - 1].y);
+    gc.addColorStop(0, COAT);
+    gc.addColorStop(1, COAT_D);
+    coatPath(0); ctx.fillStyle = gc; ctx.fill();
+    // ribete dorado por el borde inferior
+    ctx.strokeStyle = GOLD;
+    ctx.globalAlpha = 0.8;
+    ctx.lineWidth = 1.2 * S;
+    ctx.beginPath();
+    ctx.moveTo(cape[0].x, cape[0].y + 10 * S);
+    for (let i = 1; i < cape.length; i++) {
+      ctx.lineTo(cape[i].x, cape[i].y + (11 - i * 1.3) * S);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    r._limb(ctx, p.pelvis, p.kneeB, p.footB, 9 * S, COAT_D);
+    r._limbSeg(ctx, p.chest, p.handB, 8 * S, COAT_D);
+
+    // Escoba-mástil: palo robusto, VELA triangular del equipo que se infla
+    // con la velocidad, cabos deshilachados de cola y punta de bronce.
+    broomBase(ctx, r, b, {
+      wood: '#6b4a2b', woodDark: '#452e18', w: 7.5,
+      rings: '#b8860b', ringAt: [0.34],
+      bristles: (c, x, y, d, nx, ny) => {
+        // cabos deshilachados: cuerdas sueltas de distinto largo
+        c.strokeStyle = '#a8926a';
+        c.lineWidth = 2 * S;
+        for (let i = -2; i <= 2; i++) {
+          const wob = Math.sin(r.t * 4 + i * 2.2) * 0.08;
+          const a = b.angle + Math.PI + i * 0.15 + wob;
+          const len = (24 - Math.abs(i) * 3 + Math.sin(i * 5.1) * 4) * S;
+          c.beginPath();
+          c.moveTo(x, y);
+          c.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+          c.stroke();
+          // nudo en la punta de cada cabo
+          c.fillStyle = '#8a744e';
+          c.beginPath();
+          c.arc(x + Math.cos(a) * len, y + Math.sin(a) * len, 1.5 * S, 0, TAU);
+          c.fill();
+        }
+      },
+      tip: (c, tip, d, nx, ny) => {
+        // punta de bronce
+        c.fillStyle = r._ink;
+        c.beginPath(); c.arc(tip.x, tip.y, 4.6 * S, 0, TAU); c.fill();
+        c.fillStyle = GOLD;
+        c.beginPath(); c.arc(tip.x, tip.y, 3.5 * S, 0, TAU); c.fill();
+        c.fillStyle = '#f2e2b0';
+        c.beginPath(); c.arc(tip.x - S, tip.y - S, 1.2 * S, 0, TAU); c.fill();
+      },
+    });
+
+    // VELA: aparejada a un mastilito vertical DELANTE del jinete, cerca de
+    // la punta — si queda a mitad del palo se enreda visualmente con el
+    // cuerpo. Se infla con la velocidad real: quieta cuelga, a fondo es una
+    // panza llena.
+    {
+      const d = b.dir(), nx = -d.y, ny = d.x;
+      const tail = b.tail();
+      const baseX = tail.x + d.x * 88 * S, baseY = tail.y + d.y * 88 * S;
+      const mastH = 22 * S;
+      const topX = baseX + nx * -mastH, topY = baseY + ny * -mastH;
+      // mastilito
+      ctx.strokeStyle = r._ink;
+      ctx.lineWidth = 4.6 * S;
+      ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(topX, topY); ctx.stroke();
+      ctx.strokeStyle = '#5d3a17';
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(topX, topY); ctx.stroke();
+      // vela triangular hacia atrás, panza según velocidad
+      const belly = (5 + Math.min(spd / 900, 1) * 12) * S;
+      const backX = baseX - d.x * 24 * S, backY = baseY - d.y * 24 * S;
+      const sail = () => {
+        ctx.beginPath();
+        ctx.moveTo(topX, topY);
+        ctx.quadraticCurveTo(
+          (topX + backX) / 2 - nx * belly, (topY + backY) / 2 - ny * belly,
+          backX, backY);
+        ctx.lineTo(baseX, baseY);
+        ctx.closePath();
+      };
+      sail();
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 2.2 * S; ctx.stroke();
+      sail();
+      const gs = ctx.createLinearGradient(topX, topY, backX, backY);
+      gs.addColorStop(0, r._shade(color, 24));
+      gs.addColorStop(1, r._shade(color, -22));
+      ctx.fillStyle = gs;
+      ctx.globalAlpha = 0.92;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // costura de la vela
+      ctx.strokeStyle = r._shade(color, -45);
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 0.9 * S;
+      ctx.beginPath();
+      ctx.moveTo(topX, topY);
+      ctx.quadraticCurveTo(
+        (topX + backX) / 2 - nx * belly * 0.6, (topY + backY) / 2 - ny * belly * 0.6,
+        (baseX + backX) / 2, (baseY + backY) / 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    r._limb(ctx, p.pelvis, p.kneeF, p.footF, 10 * S, COAT_D);
+
+    // Abrigo de capitán: doble botonadura dorada, camisa, fajín y hebillón
+    {
+      const A = axis(p.pelvis, p.chest);
+      const HW_C = 11.5 * S, HW_H = 13 * S;
+      const at = (f, side, extra = 0) => ({
+        x: lerp(p.pelvis.x, p.chest.x, f) + A.px * (lerp(HW_H, HW_C, f) + extra) * side,
+        y: lerp(p.pelvis.y, p.chest.y, f) + A.py * (lerp(HW_H, HW_C, f) + extra) * side,
+      });
+      const path = () => {
+        const c1 = at(1, 1), c2 = at(1, -1), h1 = at(0, -1, 1.5 * S), h2 = at(0, 1, 1.5 * S);
+        ctx.beginPath();
+        ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y);
+        ctx.lineTo(h1.x, h1.y); ctx.lineTo(h2.x, h2.y);
+        ctx.closePath();
+      };
+      path();
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 3.2 * S; ctx.lineJoin = 'round'; ctx.stroke();
+      const g = ctx.createLinearGradient(
+        p.chest.x + A.px * HW_C, p.chest.y + A.py * HW_C,
+        p.chest.x - A.px * HW_C, p.chest.y - A.py * HW_C);
+      g.addColorStop(0, r._shade(COAT, 18));
+      g.addColorStop(0.5, COAT);
+      g.addColorStop(1, COAT_D);
+      path(); ctx.fillStyle = g; ctx.fill();
+      // camisa asomando en V
+      const nV = { x: lerp(p.pelvis.x, p.chest.x, 0.68), y: lerp(p.pelvis.y, p.chest.y, 0.68) };
+      ctx.beginPath();
+      ctx.moveTo(p.chest.x + A.px * HW_C * 0.55, p.chest.y + A.py * HW_C * 0.55);
+      ctx.lineTo(nV.x, nV.y);
+      ctx.lineTo(p.chest.x - A.px * HW_C * 0.55, p.chest.y - A.py * HW_C * 0.55);
+      ctx.closePath();
+      ctx.fillStyle = SHIRT;
+      ctx.fill();
+      // doble botonadura: dos columnas de botones dorados
+      ctx.fillStyle = GOLD;
+      for (const side of [0.45, -0.45]) {
+        for (const f of [0.3, 0.45, 0.6]) {
+          ctx.beginPath();
+          ctx.arc(lerp(p.pelvis.x, p.chest.x, f) + A.px * side * HW_C,
+                  lerp(p.pelvis.y, p.chest.y, f) + A.py * side * HW_C, 1.7 * S, 0, TAU);
+          ctx.fill();
+        }
+      }
+      // fajín + hebillón
+      const b1 = at(0.22, 1, 1 * S), b2 = at(0.22, -1, 1 * S);
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 6.6 * S;
+      ctx.beginPath(); ctx.moveTo(b1.x, b1.y); ctx.lineTo(b2.x, b2.y); ctx.stroke();
+      ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 5 * S;
+      ctx.beginPath(); ctx.moveTo(b1.x, b1.y); ctx.lineTo(b2.x, b2.y); ctx.stroke();
+      const bc = { x: lerp(b1.x, b2.x, 0.5), y: lerp(b1.y, b2.y, 0.5) };
+      ctx.fillStyle = GOLD;
+      ctx.fillRect(bc.x - 3.6 * S, bc.y - 3 * S, 7.2 * S, 6 * S);
+      ctx.fillStyle = '#3a2a1a';
+      ctx.fillRect(bc.x - 1.8 * S, bc.y - 1.4 * S, 3.6 * S, 2.8 * S);
+    }
+
+    // LORO del equipo en el hombro de atrás: cuerpo gordito, ala que aletea
+    // al acelerar, ojo atento. El compañero de fórmula.
+    {
+      const A = axis(p.pelvis, p.chest);
+      const bk = -fx.facing;
+      const lx = p.chest.x + A.px * bk * 16 * S + A.ux * 2 * S;
+      const ly = p.chest.y + A.py * bk * 16 * S + A.uy * 2 * S;
+      const flap = Math.sin(r.t * (4 + (b.boostPower || 0) * 14)) * 0.4;
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.ellipse(lx, ly, 5.4 * S, 6.6 * S, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.ellipse(lx, ly, 4.4 * S, 5.6 * S, 0, 0, TAU); ctx.fill();
+      // ala
+      ctx.fillStyle = r._shade(color, -30);
+      ctx.beginPath();
+      ctx.ellipse(lx + A.px * bk * 2 * S, ly + 1 * S, 2.6 * S, 4 * S, flap, 0, TAU);
+      ctx.fill();
+      // cabeza + pico + ojo
+      const hx = lx + A.ux * 6 * S, hy = ly + A.uy * 6 * S;
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.arc(hx, hy, 3.4 * S, 0, TAU); ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(hx, hy, 2.6 * S, 0, TAU); ctx.fill();
+      ctx.fillStyle = GOLD;
+      ctx.beginPath();
+      ctx.moveTo(hx + fx.facing * A.px * 2 * S, hy + fx.facing * A.py * 2 * S);
+      ctx.lineTo(hx + fx.facing * A.px * 5.4 * S, hy + fx.facing * A.py * 5.4 * S + 1 * S);
+      ctx.lineTo(hx + fx.facing * A.px * 2 * S, hy + fx.facing * A.py * 2 * S + 2.2 * S);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(hx + fx.facing * A.px * 0.8 * S, hy - 0.8 * S, 1 * S, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.beginPath(); ctx.arc(hx + fx.facing * A.px * 0.8 * S, hy - 0.8 * S, 0.5 * S, 0, TAU); ctx.fill();
+    }
+
+    r._limbSeg(ctx, p.chest, p.handF, 8.5 * S, COAT);
+    fists(ctx, r, p);
+
+    // Cabeza: tricornio, parche, barba trenzada con broches, arito de oro
+    {
+      const head = p.head, chest = p.chest;
+      const A = axis(chest, head);
+      const R = 11 * S;
+      const fxx = A.px * fx.facing, fyy = A.py * fx.facing;
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R + 1.5 * S, 0, TAU); ctx.fill();
+      const gf = ctx.createLinearGradient(
+        head.x + A.ux * R, head.y + A.uy * R,
+        head.x - A.ux * R, head.y - A.uy * R);
+      gf.addColorStop(0, r._shade(CFG.colors.skin, 8));
+      gf.addColorStop(1, r._shade(CFG.colors.skin, -30));
+      ctx.fillStyle = gf;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R, 0, TAU); ctx.fill();
+      // ojos (el de atrás lo tapa el parche)
+      eyes(ctx, r, head, A.ux, A.uy, fx, { R: 11 });
+      // parche: correa cruzada + parche sobre el ojo de atrás
+      const ex = head.x + fxx * R * 0.34 + A.ux * R * 0.12 - A.ux * R * 0.3 * 0.55 + fxx * R * 0.3 * 0.28;
+      const ey = head.y + fyy * R * 0.34 + A.uy * R * 0.12 - A.uy * R * 0.3 * 0.55 + fyy * R * 0.3 * 0.28;
+      ctx.strokeStyle = '#241d33';
+      ctx.lineWidth = 1.4 * S;
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, R * 0.92,
+              Math.atan2(A.uy, A.ux) + 0.5, Math.atan2(A.uy, A.ux) + 2.6);
+      ctx.stroke();
+      ctx.fillStyle = '#241d33';
+      ctx.beginPath(); ctx.arc(ex, ey, R * 0.3, 0, TAU); ctx.fill();
+      // barba TRENZADA: tres mechones con broches dorados
+      for (let i = -1; i <= 1; i++) {
+        const bx = head.x - A.ux * R * 0.75 + fxx * R * (0.25 + i * 0.02) + A.px * i * 3.4 * S;
+        const by = head.y - A.uy * R * 0.75 + fyy * R * (0.25 + i * 0.02) + A.py * i * 3.4 * S;
+        const sway = Math.sin(r.t * 3 + i * 2) * 1.4 * S;
+        const tx = bx - A.ux * 12 * S + sway, ty = by - A.uy * 12 * S + Math.abs(sway) * 0.4;
+        ctx.strokeStyle = r._ink;
+        ctx.lineWidth = 4.6 * S;
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
+        ctx.strokeStyle = BEARD;
+        ctx.lineWidth = 3.2 * S;
+        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
+        // broche dorado al final
+        ctx.fillStyle = GOLD;
+        ctx.beginPath(); ctx.arc(tx, ty, 1.7 * S, 0, TAU); ctx.fill();
+      }
+      // bigote
+      ctx.strokeStyle = BEARD;
+      ctx.lineWidth = 2.2 * S;
+      ctx.beginPath();
+      ctx.arc(head.x + fxx * R * 0.4 - A.ux * R * 0.28, head.y + fyy * R * 0.4 - A.uy * R * 0.28,
+              R * 0.24, Math.atan2(fyy, fxx) - 1.6, Math.atan2(fyy, fxx) + 0.6);
+      ctx.stroke();
+      // arito de oro
+      ctx.strokeStyle = GOLD;
+      ctx.lineWidth = 1.3 * S;
+      ctx.beginPath();
+      ctx.arc(head.x - fxx * R * 0.85, head.y - fyy * R * 0.85 + 2 * S, 2.2 * S, 0, TAU);
+      ctx.stroke();
+      // TRICORNIO: tres picos negros con ribete dorado y pluma del equipo
+      const hatA = Math.atan2(A.py, A.px);
+      const hat = () => {
+        ctx.beginPath();
+        ctx.moveTo(head.x + (A.ux * 6 + A.px * 13) * S, head.y + (A.uy * 6 + A.py * 13) * S);
+        ctx.quadraticCurveTo(
+          head.x + A.ux * 20 * S + fxx * 4 * S, head.y + A.uy * 20 * S + fyy * 4 * S,
+          head.x + (A.ux * 15 - A.px * 0) * S + fxx * 2 * S,
+          head.y + (A.uy * 15 - A.py * 0) * S + fyy * 2 * S);
+        ctx.quadraticCurveTo(
+          head.x + A.ux * 20 * S - fxx * 6 * S, head.y + A.uy * 20 * S - fyy * 6 * S,
+          head.x + (A.ux * 6 - A.px * 13) * S, head.y + (A.uy * 6 - A.py * 13) * S);
+        ctx.quadraticCurveTo(
+          head.x + A.ux * 10 * S, head.y + A.uy * 10 * S,
+          head.x + (A.ux * 6 + A.px * 13) * S, head.y + (A.uy * 6 + A.py * 13) * S);
+        ctx.closePath();
+      };
+      hat();
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 2.8 * S; ctx.lineJoin = 'round'; ctx.stroke();
+      hat();
+      ctx.fillStyle = '#241f2e';
+      ctx.fill();
+      // ribete dorado del ala
+      ctx.strokeStyle = GOLD;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 1.2 * S;
+      ctx.beginPath();
+      ctx.moveTo(head.x + (A.ux * 6 + A.px * 12) * S, head.y + (A.uy * 6 + A.py * 12) * S);
+      ctx.quadraticCurveTo(
+        head.x + A.ux * 11 * S, head.y + A.uy * 11 * S,
+        head.x + (A.ux * 6 - A.px * 12) * S, head.y + (A.uy * 6 - A.py * 12) * S);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      // pluma del equipo en el tricornio: cañón corto + penacho con barbas,
+      // no un alambre — a escala de juego una línea larga parecía antena.
+      {
+        const sway = Math.sin(r.t * 4) * 1.2 * S;
+        const fbx = head.x + (A.ux * 13 - fxx * 8) * S;
+        const fby = head.y + (A.uy * 13 - fyy * 8) * S;
+        const ftx = head.x + (A.ux * 21 - fxx * 13) * S + sway;
+        const fty = head.y + (A.uy * 21 - fyy * 13) * S;
+        ctx.strokeStyle = r._ink;
+        ctx.lineWidth = 2 * S;
+        ctx.beginPath(); ctx.moveTo(fbx, fby); ctx.lineTo(ftx, fty); ctx.stroke();
+        // penacho: pluma ancha inclinada hacia atrás
+        const fa = Math.atan2(fty - fby, ftx - fbx);
+        ctx.save();
+        ctx.translate(ftx, fty);
+        ctx.rotate(fa);
+        ctx.fillStyle = r._ink;
+        ctx.beginPath(); ctx.ellipse(3 * S, 0, 7.6 * S, 3.6 * S, 0, 0, TAU); ctx.fill();
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.ellipse(3 * S, 0, 6.4 * S, 2.7 * S, 0, 0, TAU); ctx.fill();
+        ctx.strokeStyle = r._shade(color, -42);
+        ctx.lineWidth = 0.8 * S;
+        ctx.beginPath(); ctx.moveTo(-2 * S, 0); ctx.lineTo(8.5 * S, 0); ctx.stroke();
+        ctx.restore();
+      }
+    }
+  },
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// SILVANO — El Druida (guardián del bosque)
+// Silueta: ASTAS de ciervo + capa de hojas + rama viva florecida como escoba
+// + dos mariposas que lo siguen. Sereno, verde, y más rápido de lo que
+// aparenta un señor que habla con los árboles.
+// ══════════════════════════════════════════════════════════════════════════
+const SILVANO = {
+  id: 'silvano', nombre: 'Silvano', titulo: 'el Druida', rol: 'Guardián del bosque',
+  bio: 'Le pidió permiso al árbol antes de cortar la rama que monta. El ' +
+       'árbol dijo que sí. Las mariposas lo siguen porque huele a primavera.',
+  palettes: {
+    base: { ROBE: '#6b5a3a', LEAF: '#4a7a3a', LEAF2: '#6a9a4a', ANTLER: '#d8cdb0' },
+  },
+  draw(ctx, r, player, color, dark, world, fx) {
+    const p = player.rider.points, b = player.broom, cape = player.rider.cape;
+    const { ROBE, LEAF, LEAF2, ANTLER } = this.palettes.base;
+    const spd = Math.hypot(b.vel.x, b.vel.y);
+
+    // Mariposas: dos compañeras que orbitan con aleteo. Una del equipo, una
+    // blanca. A más velocidad, más lejos quedan (les cuesta seguirlo).
+    const drawMariposa = (phase, col) => {
+      const a = r.t * 1.4 + phase;
+      const dist = (26 + Math.min(spd / 900, 1) * 14) * S;
+      const mx = p.chest.x + Math.cos(a) * dist;
+      const my = p.chest.y + Math.sin(a) * dist * 0.55 - 8 * S + Math.sin(r.t * 3 + phase) * 4 * S;
+      const flap = Math.abs(Math.sin(r.t * 11 + phase));
+      ctx.fillStyle = col;
+      for (const side of [1, -1]) {
+        ctx.beginPath();
+        ctx.ellipse(mx + side * 2.2 * S * flap, my, 2.6 * S * flap + 0.6 * S, 1.7 * S,
+                    side * 0.6, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#241d33';
+      ctx.fillRect(mx - 0.5 * S, my - 1.7 * S, 1 * S, 3.4 * S);
+      return Math.sin(a) > 0;
+    };
+    drawMariposa(0, color);
+
+    // Capa de hojas (la cadena): hojas sueltas girando en vez de tela
+    for (let i = 1; i < cape.length; i++) {
+      const sz = (5.5 - i * 0.5) * S;
+      if (sz <= 1) continue;
+      ctx.save();
+      ctx.translate(cape[i].x, cape[i].y + Math.sin(r.t * 4 + i * 1.7) * 2.6 * S);
+      ctx.rotate(Math.sin(r.t * 2 + i * 2) * 0.7 + i);
+      ctx.globalAlpha = 0.9 - i * 0.1;
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.ellipse(0, 0, sz + 1 * S, sz * 0.55 + 1 * S, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = i % 2 ? LEAF : LEAF2;
+      ctx.beginPath(); ctx.ellipse(0, 0, sz, sz * 0.55, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = r._shade(LEAF, -30);
+      ctx.lineWidth = 0.6 * S;
+      ctx.beginPath(); ctx.moveTo(-sz, 0); ctx.lineTo(sz, 0); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+
+    r._limb(ctx, p.pelvis, p.kneeB, p.footB, 8.5 * S, r._shade(ROBE, -22));
+    r._limbSeg(ctx, p.chest, p.handB, 7.5 * S, r._shade(ROBE, -14));
+
+    // Rama viva: torcida, con hojas brotando del palo, cola de ramitas
+    // verdes y una FLOR en la punta que respira.
+    broomBase(ctx, r, b, {
+      wood: '#7a5a34', woodDark: '#4e3a1e', woodLight: '#96744a', w: 6.5, bend: 6,
+      bind: '#5a7a3a',
+      bristles: (c, x, y, d, nx, ny) => {
+        c.strokeStyle = '#5a7a3a';
+        c.lineWidth = 2 * S;
+        for (let i = -2; i <= 2; i++) {
+          const a = b.angle + Math.PI + i * 0.16 + Math.sin(r.t * 1.6 + i) * 0.05;
+          const len = (28 - Math.abs(i) * 3) * S;
+          const ex = x + Math.cos(a) * len, ey = y + Math.sin(a) * len;
+          c.beginPath(); c.moveTo(x, y); c.lineTo(ex, ey); c.stroke();
+          // hojita en cada punta
+          c.fillStyle = i % 2 ? LEAF : LEAF2;
+          c.beginPath();
+          c.ellipse(ex, ey, 3.4 * S, 1.9 * S, a, 0, TAU);
+          c.fill();
+        }
+      },
+      tip: (c, tip, d, nx, ny) => {
+        // flor: pétalos alrededor de un centro dorado, "respira"
+        const bloom = 1 + Math.sin(r.t * 1.8) * 0.12;
+        c.fillStyle = '#e89ab8';
+        for (let i = 0; i < 5; i++) {
+          const a = r.t * 0.4 + i * (TAU / 5);
+          c.beginPath();
+          c.ellipse(tip.x + Math.cos(a) * 3.4 * S * bloom, tip.y + Math.sin(a) * 3.4 * S * bloom,
+                    3 * S * bloom, 1.9 * S * bloom, a, 0, TAU);
+          c.fill();
+        }
+        c.fillStyle = '#f2d24e';
+        c.beginPath(); c.arc(tip.x, tip.y, 2.2 * S * bloom, 0, TAU); c.fill();
+      },
+    });
+
+    // hojas brotando del palo (dos, fijas al eje)
+    {
+      const d = b.dir(), nx = -d.y, ny = d.x;
+      const tail = b.tail();
+      for (const [f, side] of [[0.45, 1], [0.65, -1]]) {
+        const lx = tail.x + d.x * 110 * S * f, ly = tail.y + d.y * 110 * S * f;
+        ctx.fillStyle = LEAF2;
+        ctx.beginPath();
+        ctx.ellipse(lx + nx * side * 4 * S, ly + ny * side * 4 * S, 4.2 * S, 2.2 * S,
+                    Math.atan2(ny, nx) + side * 0.5, 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    r._limb(ctx, p.pelvis, p.kneeF, p.footF, 9 * S, r._shade(ROBE, -8));
+
+    // Túnica de corteza + CAPA DE HOJAS en capas escalonadas sobre los hombros
+    {
+      const A = axis(p.pelvis, p.chest);
+      const HW_C = 10.5 * S, HW_H = 15 * S;
+      const at = (f, side, extra = 0) => ({
+        x: lerp(p.pelvis.x, p.chest.x, f) + A.px * (lerp(HW_H, HW_C, f) + extra) * side,
+        y: lerp(p.pelvis.y, p.chest.y, f) + A.py * (lerp(HW_H, HW_C, f) + extra) * side,
+      });
+      const path = () => {
+        const c1 = at(1, 1), c2 = at(1, -1), h1 = at(0, -1, 2 * S), h2 = at(0, 1, 2 * S);
+        ctx.beginPath();
+        ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(h1.x, h1.y);
+        ctx.lineTo(h2.x, h2.y);
+        ctx.closePath();
+      };
+      path();
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 3 * S; ctx.lineJoin = 'round'; ctx.stroke();
+      const g = ctx.createLinearGradient(
+        p.chest.x + A.px * HW_C, p.chest.y + A.py * HW_C,
+        p.chest.x - A.px * HW_C, p.chest.y - A.py * HW_C);
+      g.addColorStop(0, r._shade(ROBE, 16));
+      g.addColorStop(1, r._shade(ROBE, -26));
+      path(); ctx.fillStyle = g; ctx.fill();
+      // vetas de corteza
+      ctx.strokeStyle = r._shade(ROBE, -36);
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 1 * S;
+      for (const s2 of [-0.4, 0.15, 0.6]) {
+        ctx.beginPath();
+        ctx.moveTo(at(0.1, s2).x, at(0.1, s2).y);
+        ctx.quadraticCurveTo(at(0.5, s2 * 1.2).x, at(0.5, s2 * 1.2).y,
+                             at(0.9, s2 * 0.8).x, at(0.9, s2 * 0.8).y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      // esclavina de hojas: dos filas de festones sobre hombros/pecho
+      for (const [f, n, sz] of [[0.92, 4, 6], [0.78, 3, 5]]) {
+        for (let i = 0; i < n; i++) {
+          const side = (i / (n - 1)) * 2 - 1;
+          const lx = lerp(p.pelvis.x, p.chest.x, f) + A.px * side * HW_C * 0.85;
+          const ly = lerp(p.pelvis.y, p.chest.y, f) + A.py * side * HW_C * 0.85;
+          ctx.fillStyle = r._ink;
+          ctx.beginPath();
+          ctx.ellipse(lx, ly, (sz + 1) * S, (sz + 1) * 0.65 * S,
+                      Math.atan2(A.py, A.px) + side * 0.4, 0, TAU);
+          ctx.fill();
+          ctx.fillStyle = i % 2 ? LEAF : LEAF2;
+          ctx.beginPath();
+          ctx.ellipse(lx, ly, sz * S, sz * 0.65 * S,
+                      Math.atan2(A.py, A.px) + side * 0.4, 0, TAU);
+          ctx.fill();
+        }
+      }
+      // colgante de madera: espiral
+      const px2 = lerp(p.pelvis.x, p.chest.x, 0.6), py2 = lerp(p.pelvis.y, p.chest.y, 0.6);
+      ctx.strokeStyle = '#3a2c18';
+      ctx.lineWidth = 1.3 * S;
+      ctx.beginPath();
+      for (let a = 0; a < TAU * 1.8; a += 0.4) {
+        const rr = 1 + a * 0.55;
+        const X = px2 + Math.cos(a) * rr * S * 0.55, Y = py2 + Math.sin(a) * rr * S * 0.55;
+        a === 0 ? ctx.moveTo(X, Y) : ctx.lineTo(X, Y);
+      }
+      ctx.stroke();
+    }
+
+    r._limbSeg(ctx, p.chest, p.handF, 8 * S, ROBE);
+    fists(ctx, r, p);
+
+    // Cabeza: ASTAS ramificadas, corona de hojas, barba corta con una hojita
+    {
+      const head = p.head, chest = p.chest;
+      const A = axis(chest, head);
+      const R = 11 * S;
+      const fxx = A.px * fx.facing, fyy = A.py * fx.facing;
+      // astas primero (detrás de la cabeza)
+      const asta = (side) => {
+        const bx = head.x + A.px * side * R * 0.6 + A.ux * R * 0.7;
+        const by = head.y + A.py * side * R * 0.6 + A.uy * R * 0.7;
+        ctx.strokeStyle = r._ink;
+        ctx.lineWidth = 4.4 * S;
+        ctx.lineCap = 'round';
+        const seg = (x1, y1, x2, y2, w) => {
+          ctx.lineWidth = w + 1.8 * S;
+          ctx.strokeStyle = r._ink;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          ctx.lineWidth = w;
+          ctx.strokeStyle = ANTLER;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        };
+        const m1x = bx + A.px * side * 7 * S + A.ux * 9 * S;
+        const m1y = by + A.py * side * 7 * S + A.uy * 9 * S;
+        const t1x = m1x + A.px * side * 4 * S + A.ux * 9 * S;
+        const t1y = m1y + A.py * side * 4 * S + A.uy * 9 * S;
+        seg(bx, by, m1x, m1y, 3.2 * S);
+        seg(m1x, m1y, t1x, t1y, 2.4 * S);
+        // púas
+        seg(m1x, m1y, m1x + A.px * side * 7 * S + A.ux * 2 * S,
+            m1y + A.py * side * 7 * S + A.uy * 2 * S, 2 * S);
+        seg((bx + m1x) / 2, (by + m1y) / 2,
+            (bx + m1x) / 2 - A.px * side * 1 * S + A.ux * 6.5 * S,
+            (by + m1y) / 2 - A.py * side * 1 * S + A.uy * 6.5 * S, 2 * S);
+      };
+      asta(1); asta(-1);
+      // cabeza
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R + 1.4 * S, 0, TAU); ctx.fill();
+      const gf = ctx.createLinearGradient(
+        head.x + A.ux * R, head.y + A.uy * R,
+        head.x - A.ux * R, head.y - A.uy * R);
+      gf.addColorStop(0, r._shade(CFG.colors.skin, 12));
+      gf.addColorStop(1, r._shade(CFG.colors.skin, -24));
+      ctx.fillStyle = gf;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R, 0, TAU); ctx.fill();
+      // corona de hojas en la frente
+      for (let i = -1; i <= 1; i++) {
+        const lx = head.x + A.ux * R * 0.75 + A.px * i * 5 * S;
+        const ly = head.y + A.uy * R * 0.75 + A.py * i * 5 * S;
+        ctx.fillStyle = i === 0 ? LEAF2 : LEAF;
+        ctx.beginPath();
+        ctx.ellipse(lx, ly, 4 * S, 2.2 * S, Math.atan2(A.py, A.px) + i * 0.4, 0, TAU);
+        ctx.fill();
+      }
+      eyes(ctx, r, head, A.ux, A.uy, fx, { R: 11, irisA: '#4a7a3a' });
+      // barba corta canosa con una hojita enredada
+      ctx.fillStyle = '#c8c0aa';
+      ctx.beginPath();
+      ctx.arc(head.x - A.ux * R * 0.8 + fxx * R * 0.2,
+              head.y - A.uy * R * 0.8 + fyy * R * 0.2, R * 0.42, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = LEAF2;
+      ctx.beginPath();
+      ctx.ellipse(head.x - A.ux * R * 1.02 + fxx * R * 0.35,
+                  head.y - A.uy * R * 1.02 + fyy * R * 0.35, 2.6 * S, 1.4 * S, 0.6, 0, TAU);
+      ctx.fill();
+      // sonrisa serena
+      ctx.strokeStyle = '#8a6a52';
+      ctx.lineWidth = 1.2 * S;
+      ctx.beginPath();
+      ctx.arc(head.x + fxx * R * 0.4 - A.ux * R * 0.3, head.y + fyy * R * 0.4 - A.uy * R * 0.3,
+              R * 0.2, Math.atan2(fyy, fxx) - 0.4, Math.atan2(fyy, fxx) + 0.8);
+      ctx.stroke();
+    }
+
+    drawMariposa(Math.PI, '#f2ecdd');
+  },
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// FOGÓN — El Cocinero (chef de combate)
+// Silueta: gorro de chef GIGANTE + bigotazo + panza + cucharón con cola de
+// batidor. Vapor en vez de capa. El pañuelo del cuello marca el equipo.
+// Cada gol es una receta y vos sos el ingrediente.
+// ══════════════════════════════════════════════════════════════════════════
+const FOGON = {
+  id: 'fogon', nombre: 'Fogón', titulo: 'el Cocinero', rol: 'Chef de combate',
+  bio: 'Expulsado de la cocina real por condimentar de más. Para él cada ' +
+       'gol es una receta: los ingredientes son la pelota, el arco y vos.',
+  palettes: {
+    base: { WHITES: '#f0ede4', WHITES_D: '#cfc8b8', APRON: '#8a4a3a', STACHE: '#4a3020' },
+  },
+  draw(ctx, r, player, color, dark, world, fx) {
+    const p = player.rider.points, b = player.broom, cape = player.rider.cape;
+    const { WHITES, WHITES_D, APRON, STACHE } = this.palettes.base;
+    const boost = b.boostPower || 0;
+
+    // Vapor: nubes blancas que suben y se disipan (la cadena de la capa).
+    // Cocina en movimiento — con impulso, hierve.
+    for (let i = 1; i < cape.length; i++) {
+      const rad = (7 - i * 0.7) * S * (1 + boost * 0.4);
+      if (rad <= 1) continue;
+      ctx.globalAlpha = (0.42 - i * 0.05) * (0.7 + boost * 0.5);
+      ctx.fillStyle = '#f2f0e8';
+      ctx.beginPath();
+      ctx.arc(cape[i].x + Math.sin(r.t * 3 + i * 2) * 3 * S,
+              cape[i].y - i * 2.4 * S + Math.sin(r.t * 2 + i) * 2 * S, rad, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    r._limb(ctx, p.pelvis, p.kneeB, p.footB, 9.5 * S, '#3a3448');
+    r._limbSeg(ctx, p.chest, p.handB, 9 * S, WHITES_D);
+
+    // Cucharón de madera con cola de BATIDOR de alambre
+    broomBase(ctx, r, b, {
+      wood: '#a8763e', woodDark: '#6b4423', w: 6,
+      bind: '#8a8a96',
+      bristles: (c, x, y, d, nx, ny) => {
+        // batidor: alambres en jaula
+        c.strokeStyle = '#b8bfca';
+        c.lineWidth = 1.6 * S;
+        for (const k of [1, 0.62, 0.3]) {
+          c.beginPath();
+          c.ellipse(x - d.x * 13 * S, y - d.y * 13 * S,
+                    13 * S, 8 * S * k, Math.atan2(d.y, d.x), 0, TAU);
+          c.stroke();
+        }
+      },
+      tip: (c, tip, d, nx, ny) => {
+        // cabeza de cucharón: cuenco visto de perfil
+        c.fillStyle = r._ink;
+        c.beginPath();
+        c.ellipse(tip.x + d.x * 4 * S, tip.y + d.y * 4 * S, 8.6 * S, 6 * S,
+                  Math.atan2(d.y, d.x), 0, TAU);
+        c.fill();
+        c.fillStyle = '#a8763e';
+        c.beginPath();
+        c.ellipse(tip.x + d.x * 4 * S, tip.y + d.y * 4 * S, 7.4 * S, 4.8 * S,
+                  Math.atan2(d.y, d.x), 0, TAU);
+        c.fill();
+        c.fillStyle = '#6b4423';
+        c.beginPath();
+        c.ellipse(tip.x + d.x * 5 * S, tip.y + d.y * 5 * S, 4.6 * S, 2.6 * S,
+                  Math.atan2(d.y, d.x), 0, TAU);
+        c.fill();
+      },
+    });
+
+    r._limb(ctx, p.pelvis, p.kneeF, p.footF, 10 * S, '#464058');
+
+    // Chaqueta de chef con panza, doble botonadura, delantal manchado y
+    // PAÑUELO del equipo al cuello.
+    {
+      const A = axis(p.pelvis, p.chest);
+      const HW_C = 11 * S, HW_H = 17 * S;   // panza generosa
+      const at = (f, side, extra = 0) => ({
+        x: lerp(p.pelvis.x, p.chest.x, f) + A.px * (lerp(HW_H, HW_C, f) + extra) * side,
+        y: lerp(p.pelvis.y, p.chest.y, f) + A.py * (lerp(HW_H, HW_C, f) + extra) * side,
+      });
+      const path = () => {
+        const c1 = at(1, 1), c2 = at(1, -1);
+        const h1 = at(0, -1, 2 * S), h2 = at(0, 1, 2 * S);
+        const mid = { x: lerp(h1.x, h2.x, 0.5) - A.ux * 4 * S, y: lerp(h1.y, h2.y, 0.5) - A.uy * 4 * S };
+        ctx.beginPath();
+        ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y);
+        // panza redonda del lado del frente
+        ctx.quadraticCurveTo(
+          at(0.4, -1, 4 * S).x, at(0.4, -1, 4 * S).y, h1.x, h1.y);
+        ctx.quadraticCurveTo(mid.x, mid.y, h2.x, h2.y);
+        ctx.quadraticCurveTo(at(0.4, 1, 4 * S).x, at(0.4, 1, 4 * S).y, c1.x, c1.y);
+        ctx.closePath();
+      };
+      path();
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 3.2 * S; ctx.lineJoin = 'round'; ctx.stroke();
+      const g = ctx.createLinearGradient(
+        p.chest.x + A.px * HW_C, p.chest.y + A.py * HW_C,
+        p.chest.x - A.px * HW_C, p.chest.y - A.py * HW_C);
+      g.addColorStop(0, WHITES);
+      g.addColorStop(1, WHITES_D);
+      path(); ctx.fillStyle = g; ctx.fill();
+      // delantal: panel oscuro al frente con manchas de salsa
+      const ap = () => {
+        ctx.beginPath();
+        ctx.moveTo(at(0.55, fx.facing * 0.75).x, at(0.55, fx.facing * 0.75).y);
+        ctx.lineTo(at(0.55, fx.facing * 0.1).x, at(0.55, fx.facing * 0.1).y);
+        ctx.lineTo(at(0.02, fx.facing * 0.15).x, at(0.02, fx.facing * 0.15).y);
+        ctx.lineTo(at(0.02, fx.facing * 1).x, at(0.02, fx.facing * 1).y);
+        ctx.closePath();
+      };
+      ap();
+      ctx.fillStyle = APRON;
+      ctx.globalAlpha = 0.92;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // manchas de salsa (¡y una del color del equipo!)
+      for (const [f, s2, sz, col] of [[0.34, 0.55, 2.6, '#c8452e'],
+                                      [0.18, 0.35, 1.8, '#e8a02e'],
+                                      [0.26, 0.8, 1.5, color]]) {
+        ctx.fillStyle = col;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.arc(at(f, fx.facing * s2).x, at(f, fx.facing * s2).y, sz * S, 0, TAU);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      // botones de la chaqueta (lado de atrás, doble fila)
+      ctx.fillStyle = WHITES_D;
+      for (const f of [0.45, 0.62, 0.79]) {
+        ctx.beginPath();
+        ctx.arc(at(f, -fx.facing * 0.5).x, at(f, -fx.facing * 0.5).y, 1.5 * S, 0, TAU);
+        ctx.fill();
+      }
+      // PAÑUELO del equipo anudado al cuello
+      const n1 = at(0.97, 0.7), n2 = at(0.97, -0.7);
+      ctx.strokeStyle = r._ink; ctx.lineWidth = 6 * S;
+      ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y); ctx.stroke();
+      ctx.strokeStyle = color; ctx.lineWidth = 4.4 * S;
+      ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y); ctx.stroke();
+      // puntas del nudo cayendo
+      const kx = at(0.92, fx.facing * 0.8).x, ky = at(0.92, fx.facing * 0.8).y;
+      ctx.fillStyle = color;
+      for (const off of [0, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(kx, ky);
+        ctx.lineTo(kx + fx.facing * A.px * (4 + off * 3) * S - A.ux * (7 + off * 2) * S,
+                   ky + fx.facing * A.py * (4 + off * 3) * S - A.uy * (7 + off * 2) * S);
+        ctx.lineTo(kx + fx.facing * A.px * (1 + off * 3) * S - A.ux * (4 + off * 2) * S,
+                   ky + fx.facing * A.py * (1 + off * 3) * S - A.uy * (4 + off * 2) * S);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+
+    r._limbSeg(ctx, p.chest, p.handF, 9.5 * S, WHITES);
+    fists(ctx, r, p);
+
+    // Cabeza: GORRO DE CHEF gigante con pliegues, bigotazo enrulado, cejas
+    // gruesas, nariz rosada — el gorro se ladea con la velocidad.
+    {
+      const head = p.head, chest = p.chest;
+      const A = axis(chest, head);
+      const R = 11 * S;
+      const fxx = A.px * fx.facing, fyy = A.py * fx.facing;
+      ctx.fillStyle = r._ink;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R + 1.5 * S, 0, TAU); ctx.fill();
+      const gf = ctx.createLinearGradient(
+        head.x + A.ux * R, head.y + A.uy * R,
+        head.x - A.ux * R, head.y - A.uy * R);
+      gf.addColorStop(0, r._shade(CFG.colors.skin, 20));
+      gf.addColorStop(1, r._shade(CFG.colors.skin, -18));
+      ctx.fillStyle = gf;
+      ctx.beginPath(); ctx.arc(head.x, head.y, R, 0, TAU); ctx.fill();
+      // cejas gruesas
+      ctx.strokeStyle = STACHE;
+      ctx.lineWidth = 2.4 * S;
+      ctx.lineCap = 'round';
+      const eb = { x: head.x + fxx * R * 0.34 + A.ux * R * 0.12,
+                   y: head.y + fyy * R * 0.34 + A.uy * R * 0.12 };
+      const sep = R * 0.30;
+      for (const sgn of [0.55, -0.55]) {
+        const ex = eb.x + A.ux * sep * sgn + fxx * sep * 0.28;
+        const ey = eb.y + A.uy * sep * sgn + fyy * sep * 0.28;
+        ctx.beginPath();
+        ctx.moveTo(ex - fxx * R * 0.16 + A.ux * R * 0.26, ey - fyy * R * 0.16 + A.uy * R * 0.26);
+        ctx.lineTo(ex + fxx * R * 0.2 + A.ux * R * 0.28, ey + fyy * R * 0.2 + A.uy * R * 0.28);
+        ctx.stroke();
+      }
+      eyes(ctx, r, head, A.ux, A.uy, fx, { R: 11 });
+      // nariz rosada grande
+      ctx.fillStyle = '#d88a72';
+      ctx.beginPath();
+      ctx.arc(head.x + fxx * R * 0.58 - A.ux * R * 0.05,
+              head.y + fyy * R * 0.58 - A.uy * R * 0.05, R * 0.2, 0, TAU);
+      ctx.fill();
+      // BIGOTAZO: dos rulos hacia arriba
+      ctx.strokeStyle = r._ink;
+      ctx.lineWidth = 4.4 * S;
+      for (const side of [1, -1]) {
+        ctx.beginPath();
+        ctx.arc(head.x + fxx * R * 0.42 - A.ux * R * 0.24 + A.px * side * R * 0.32,
+                head.y + fyy * R * 0.42 - A.uy * R * 0.24 + A.py * side * R * 0.32,
+                R * 0.3, Math.atan2(fyy, fxx) - side * 0.4, Math.atan2(fyy, fxx) + side * 2.6, side < 0);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = STACHE;
+      ctx.lineWidth = 3.2 * S;
+      for (const side of [1, -1]) {
+        ctx.beginPath();
+        ctx.arc(head.x + fxx * R * 0.42 - A.ux * R * 0.24 + A.px * side * R * 0.32,
+                head.y + fyy * R * 0.42 - A.uy * R * 0.24 + A.py * side * R * 0.32,
+                R * 0.3, Math.atan2(fyy, fxx) - side * 0.4, Math.atan2(fyy, fxx) + side * 2.6, side < 0);
+        ctx.stroke();
+      }
+      // GORRO: banda + globo plisado enorme, ladeado según velocidad
+      const lean = clamp((fx.look?.x ?? 0) / 900, -1, 1) * -4 * S;
+      const bandY = 0.72;
+      ctx.strokeStyle = r._ink;
+      ctx.lineWidth = 7.4 * S;
+      ctx.beginPath();
+      ctx.moveTo(head.x + A.ux * R * bandY + A.px * R * 0.95, head.y + A.uy * R * bandY + A.py * R * 0.95);
+      ctx.lineTo(head.x + A.ux * R * bandY - A.px * R * 0.95, head.y + A.uy * R * bandY - A.py * R * 0.95);
+      ctx.stroke();
+      ctx.strokeStyle = WHITES;
+      ctx.lineWidth = 6 * S;
+      ctx.beginPath();
+      ctx.moveTo(head.x + A.ux * R * bandY + A.px * R * 0.95, head.y + A.uy * R * bandY + A.py * R * 0.95);
+      ctx.lineTo(head.x + A.ux * R * bandY - A.px * R * 0.95, head.y + A.uy * R * bandY - A.py * R * 0.95);
+      ctx.stroke();
+      // globo del gorro: tres lóbulos plisados
+      const topX = head.x + A.ux * R * 2.15 + A.px * lean;
+      const topY = head.y + A.uy * R * 2.15 + A.py * lean;
+      const puff = (ox, oy, rr) => {
+        ctx.fillStyle = r._ink;
+        ctx.beginPath(); ctx.arc(ox, oy, rr + 1.4 * S, 0, TAU); ctx.fill();
+      };
+      const puff2 = (ox, oy, rr, col) => {
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(ox, oy, rr, 0, TAU); ctx.fill();
+      };
+      const l1 = { x: topX + A.px * R * 0.55, y: topY + A.py * R * 0.55 };
+      const l2 = { x: topX - A.px * R * 0.55, y: topY - A.py * R * 0.55 };
+      const l3 = { x: topX + A.ux * R * 0.3, y: topY + A.uy * R * 0.3 };
+      puff(l1.x, l1.y, R * 0.62); puff(l2.x, l2.y, R * 0.62); puff(l3.x, l3.y, R * 0.72);
+      puff2(l1.x, l1.y, R * 0.62, WHITES_D);
+      puff2(l2.x, l2.y, R * 0.62, WHITES_D);
+      puff2(l3.x, l3.y, R * 0.72, WHITES);
+      // pliegues
+      ctx.strokeStyle = WHITES_D;
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 1.1 * S;
+      for (const s2 of [-0.45, 0, 0.45]) {
+        ctx.beginPath();
+        ctx.moveTo(head.x + A.ux * R * (bandY + 0.15) + A.px * s2 * R * 0.8,
+                   head.y + A.uy * R * (bandY + 0.15) + A.py * s2 * R * 0.8);
+        ctx.lineTo(topX + A.px * s2 * R * 0.5, topY + A.py * s2 * R * 0.5);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  },
+};
+
 // Tabla id → estela. La usa main.js; si un personaje no está acá, cae en la
 // mágica clásica, así sumar un skin nuevo nunca rompe el partido.
 export const TRAILS = {
@@ -1523,6 +2933,11 @@ export const CHARACTERS = {
   mordrak: MORDRAK,
   izar: IZAR,
   zefir: ZEFIR,
+  petra: PETRA,
+  hilaria: HILARIA,
+  vendaval: VENDAVAL,
+  silvano: SILVANO,
+  fogon: FOGON,
 };
 
 // Plantel completo para la galería (el mago clásico se dibuja en render.js,
@@ -1535,4 +2950,5 @@ export const ROSTER = [
     builtin: true,
   },
   VALKA, MORDRAK, IZAR, ZEFIR,
+  PETRA, HILARIA, VENDAVAL, SILVANO, FOGON,
 ];

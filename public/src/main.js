@@ -147,7 +147,8 @@ const playerB = teamB[0] ?? null;   // rival principal (null en práctica)
 // guardado. Los rivales varían al azar para que el partido no sea un espejo
 // (?charbot= los fuerza, útil para probar).
 const CHAR_KEY = 'escoba.character.v1';
-const CHAR_POOL = ['mago', 'valka', 'mordrak', 'izar', 'zefir'];
+const CHAR_POOL = ['mago', 'valka', 'mordrak', 'izar', 'zefir',
+                   'petra', 'hilaria', 'vendaval', 'silvano', 'fogon'];
 {
   let pick = params.get('char');
   if (!pick) { try { pick = localStorage.getItem(CHAR_KEY); } catch { /* sin storage */ } }

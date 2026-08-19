@@ -27,6 +27,16 @@ const PERSONAS = {
   mordrak: { defensor: true },
   // Ízar bombardea: carga el golpe MUCHO antes — llega con el latigazo a tope.
   izar:    { francotirador: true, brakeKick: 0.3 },
+  // Petra piensa lento y pega con el cuerpo: una montaña no se apura.
+  petra:   { thinkMul: 1.15, brakeKick: 0.8 },
+  // Hilaria teje fino: paciente y con la mejor puntería del plantel.
+  hilaria: { aimMul: 0.7, brakeKick: 0.35 },
+  // Vendaval ve botín: el fugitivo es SU tesoro, y vuela a todo trapo.
+  vendaval: { chaseMul: 1.5, boostCerca: true },
+  // Silvano fluye: sereno para decidir, certero para ejecutar.
+  silvano: { thinkMul: 1.05, aimMul: 0.8 },
+  // Fogón condimenta de más: impaciente, agresivo y algo desprolijo.
+  fogon:   { impaciente: true, brakeKick: 0.65, aimMul: 1.15 },
 };
 
 export class Bot {
@@ -345,8 +355,9 @@ export class Bot {
     const boostWorthIt = distToBall > (persona.boostCerca ? 230 : 320) || this.mode === 'defend';
     this.wantsBoost = this.thrust && boostWorthIt && Math.abs(diff) < 0.6;
 
-    // Error humano (menos cuando está encima de la pelota)
-    const n = (distToBall < 220 ? 9 : 30) * this.diff.aim;
+    // Error humano (menos cuando está encima de la pelota). La personalidad
+    // afina o empeora la puntería: Hilaria teje fino, Fogón condimenta de más.
+    const n = (distToBall < 220 ? 9 : 30) * this.diff.aim * (persona.aimMul ?? 1);
     this.noise.x = rand(-n, n);
     this.noise.y = rand(-n, n);
   }
