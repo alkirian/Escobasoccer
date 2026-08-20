@@ -704,7 +704,6 @@ export class Renderer {
     const { imgW, imgH } = CFG.arena;
     if (this.mapReady) {
       ctx.drawImage(this.mapImg, -imgW / 2, -imgH / 2, imgW, imgH);
-      this._fadeMidCircle(ctx);
     } else {
       const g = ctx.createLinearGradient(0, -imgH / 2, 0, imgH / 2);
       g.addColorStop(0, '#0b0a24');
@@ -714,35 +713,14 @@ export class Renderer {
     }
   }
 
-  // El círculo de medio campo está PINTADO EN LA PARED del mapa, justo a la
-  // altura por la que vuela la pelota. No hay ningún colisionador ahí (lo
-  // verifiqué lanzando la pelota por el centro sin jugadores: pasa derecho,
-  // los únicos rebotes son piso y techo), pero la línea curva a media altura
-  // se lee como una superficie y da la sensación de que la pelota va a
-  // rebotar. Como el círculo vive en el PNG, no se puede borrar: se atenúa
-  // pintando encima un velo suave del color de la pared.
-  //
-  // Sólo la parte AÉREA. El círculo del piso queda intacto: ahí sí es
-  // referencia útil de medio campo y nadie lo confunde con una pared.
-  _fadeMidCircle(ctx) {
-    // Medido en pantalla y convertido a mundo: el círculo pintado está
-    // centrado en (-37, 2) con radio ~214.
-    const cx = -37, cy = 2, r = 250;
-    ctx.save();
-    // Se OSCURECE en vez de taparse con un parche gris: un disco opaco encima
-    // de la piedra se nota como una mancha, mientras que bajar el contraste
-    // hace desaparecer la línea blanca sin tocar la textura del muro.
-    ctx.globalCompositeOperation = 'multiply';
-    const g = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r);
-    g.addColorStop(0, 'rgba(150,140,150,1)');
-    g.addColorStop(0.75, 'rgba(180,172,180,1)');
-    g.addColorStop(1, 'rgba(255,255,255,1)');   // neutro en el borde
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, 7);
-    ctx.fill();
-    ctx.restore();
-  }
+  // NOTA sobre el círculo de medio campo: está PINTADO EN LA PARED del mapa,
+  // justo a la altura por la que vuela la pelota, y por eso a veces parece
+  // que la pelota va a rebotar ahí. Verificado que NO hay colisionador: la
+  // pelota lanzada por el centro sin jugadores pasa derecho, y los únicos
+  // rebotes son piso (y=484) y techo. Probé atenuarlo por render (oscurecer
+  // esa zona con 'multiply'): bajaba el contraste del arco un 53%, pero la
+  // mancha se notaba y quedaba peor que el problema. Si algún día molesta de
+  // verdad, hay que editar el PNG del mapa — no taparlo desde el código.
 
   // Los arcos rúnicos ya están pintados en la imagen: acá sólo se agrega el
   // aura de equipo, para que siga siendo obvio de un vistazo qué portal es
