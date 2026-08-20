@@ -74,8 +74,15 @@ export class Match {
   // side: 'goalL' (portal izq) | 'goalR' (portal der)
   onGoal(side) {
     const w = this.world;
-    // Portal izq es de p1 → gol allí = punto p2. Portal der es de p2 → punto p1.
-    const scorer = side === 'goalL' ? 'p2' : 'p1';
+    // Quién defiende ese portal decide a quién le marcaron. Antes esto era
+    // fijo ("portal izq es de p1"), pero ahora el lado de salida se sortea:
+    // con el humano arrancando a la derecha, todos los goles se contaban al
+    // revés. Se lee del propio jugador (pl.side) en vez de asumirlo.
+    const sideSign = side === 'goalL' ? -1 : 1;
+    const dueño = (w.players || []).find((p) => p.side === sideSign);
+    const scorer = dueño
+      ? (dueño.team === 'p1' ? 'p2' : 'p1')   // gol en tu arco = punto del rival
+      : (side === 'goalL' ? 'p2' : 'p1');     // respaldo por si no hay jugadores
     this.score[scorer]++;
     this.goalScorer = scorer;
     this.goalSide = side === 'goalL' ? -1 : 1;

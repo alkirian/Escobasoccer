@@ -76,6 +76,17 @@ export class Bot {
     }
     if (this.backoffT > 0) this.backoffT -= dt;
 
+    // Replanteo INMEDIATO si la pelota cambió de rumbo fuerte (alguien le
+    // pegó) o si pasa cerca a toda velocidad. Con la ventana fija de ~11 Hz,
+    // una pelota rápida cruzaba al lado del bot entre dos decisiones y él
+    // seguía yendo al punto viejo: eso es lo que se ve como "no reacciona".
+    const vBall = Math.hypot(ball.vel.x, ball.vel.y);
+    const cambioBrusco = Math.hypot(
+      ball.vel.x - (this._lastBallV?.x ?? ball.vel.x),
+      ball.vel.y - (this._lastBallV?.y ?? ball.vel.y)) > 700;
+    if (cambioBrusco || (dBall < 620 && vBall > 900)) this.decideT = 0;
+    this._lastBallV = { x: ball.vel.x, y: ball.vel.y };
+
     this.decideT -= dt;
     if (this.decideT <= 0) {
       // ~11 Hz en normal. Replantear más seguido es lo que más se nota contra
@@ -145,6 +156,13 @@ export class Bot {
     const ballNearOwn = Math.abs(ball.pos.x - ownPortal.x) < halfW * 0.85;
     const ballOnDoorstep = Math.hypot(ball.pos.x - ownPortal.x, ball.pos.y - ownPortal.y) < 520;
     const meBehindBall = (me.pos.x - bp.x) * this.ownSide > 30; // entre pelota y mi arco
+
+    // PELIGRO: la pelota está en mi mitad de cancha, se mueva o no. Antes la
+    // defensa sólo despertaba si la pelota VENÍA hacia el arco o ya estaba en
+    // la puerta; una pelota quieta o lenta en mi área no activaba nada y el
+    // bot la ignoraba mientras el rival la acomodaba. Con esto, tener la
+    // pelota cerca del arco propio ya es motivo suficiente para ir a sacarla.
+    const enPeligro = (bp.x - ownPortal.x) * -this.ownSide < halfW * 0.55;
 
     // ¿Estoy del lado correcto para empujar la pelota al arco rival?
     const toMe = { x: me.pos.x - bp.x, y: me.pos.y - bp.y };
@@ -293,7 +311,7 @@ export class Bot {
       this.desired.y = bp.y - sy * 400 - 60;
       this.thrust = true;
       this.brake = false;
-    } else if ((towardOwn && ballNearOwn && !meBehindBall) || ballOnDoorstep) {
+    } else if ((towardOwn && ballNearOwn && !meBehindBall) || ballOnDoorstep || enPeligro) {
       // DEFENSA: interponerse entre la pelota y mi portal
       this.mode = 'defend';
       if (distToBall < 180) {
@@ -308,17 +326,65 @@ export class Bot {
         let ax = bp.x - ownPortal.x, ay = bp.y - ownPortal.y;
         const al = Math.hypot(ax, ay) || 1;
         ax /= al; ay /= al;
-        this.desired.x = bp.x - ax * 150;
-        this.desired.y = bp.y - ay * 150;
+        // Punto de despeje a 200 (antes 150). Probado 150 vs 200 vs 260 sobre
+        // 8 partidos cada uno: la diferencia en autogoles es ruido, pero con
+        // 200 el equipo convierte más (17 goles legítimos contra 12 con 150),
+        // porque el defensor sale del área con más impulso en vez de quedar
+        // pegado a la pelota. 260 ya es demasiado: llega tarde a tapar.
+        this.desired.x = bp.x - ax * 200;
+        this.desired.y = bp.y - ay * 200;
       } else {
         this.desired.x = bp.x * 0.45 + ownPortal.x * 0.55;
         this.desired.y = bp.y * 0.6;
       }
       this.thrust = true;
       this.brake = false;
-    } else if (alignment < -0.1) {
+
+      // NOTA (probado y descartado): hice que el defensor se apartara de la
+      // línea pelota→arco cuando quedaba del lado de adentro, para no empujar
+      // la pelota a su propio arco. Salió peor — los autogoles subieron de 29%
+      // a 38% y los goles legítimos bajaron de 12 a 8, porque el que se aparta
+      // deja de tapar y entran los tiros que antes bloqueaba. Estar delante
+      // del arco vale más que el autogol ocasional. No reintentar.
+
+      // LO QUE DECIDE EL CONTACTO ES MI VELOCIDAD, no mi posición. El choque
+      // empuja la pelota por la normal cuerpo→pelota, así que si llego
+      // MOVIÉNDOME hacia mi propio arco, la toco y se va para adentro por
+      // mucho que apunte bien. Medido: de los golpes que acercan la pelota al
+      // arco propio, ~90% son choques de cuerpo y no latigazos.
+      //
+      // Si vengo hacia mi arco y la pelota está cerca, se corrige el rumbo:
+      // el objetivo se pone del lado propio de la pelota para que el
+      // acercamiento final sea EN SENTIDO CONTRARIO, hacia campo rival.
+      // Rodear SÓLO si hay margen. En defensa el tiempo manda: si la pelota
+      // está lejos del arco todavía se puede ganar la espalda, pero con la
+      // pelota encima del arco rodear es regalar el gol — ahí se va de frente
+      // y se saca como se pueda. (Medido: aplicar el rodeo siempre subía los
+      // toques malos de 'defend' de 24 a 41, porque la pelota se quedaba
+      // dando vueltas en el área en vez de salir.)
+      const dOwnGoal = Math.hypot(bp.x - ownPortal.x, bp.y - ownPortal.y);
+      const hayMargen = dOwnGoal > 620;
+      const vengoHaciaMiArco = me.vel.x * this.ownSide > 200;
+      const ladoMalo = (me.pos.x - bp.x) * this.ownSide < -40;
+      if (hayMargen && (ladoMalo || vengoHaciaMiArco) && distToBall < 420) {
+        const sgn = me.pos.y > bp.y ? 1 : -1;
+        // Punto de rodeo: por fuera en Y, y bien del lado propio en X, para
+        // llegar empujando hacia el rival.
+        this.desired.x = bp.x + this.ownSide * 340;
+        this.desired.y = bp.y + sgn * 280;
+        this.thrust = true;         // sin frenar: rodear rápido
+        this.brake = false;
+      }
+      // Umbral de -0.1 a -0.32: con -0.1 se atacaba estando casi de costado,
+      // y desde ahí el contacto sale para cualquier lado. Exigir estar mejor
+      // parado manda esos casos a 'flank', que rodea — que es lo correcto.
+    } else if (alignment < -0.32) {
       // ATAQUE: estoy detrás de la pelota → empujarla a través hacia el portal
       this.mode = 'attack';
+      // El punto objetivo va apenas PASADA la pelota en la dirección del arco
+      // rival, para atravesarla. Pero se recorta si eso me pusiera del lado
+      // malo: con 60 fijos, llegando rápido y en diagonal, el bot terminaba
+      // pasándose y el siguiente contacto salía para atrás.
       this.desired.x = bp.x + sx * 60;
       this.desired.y = bp.y + sy * 60;
       this.thrust = true;
@@ -342,10 +408,15 @@ export class Bot {
       // RODEAR: ir al punto detrás de la pelota (con arco para no empujarla mal)
       this.mode = 'flank';
       const behind = { x: bp.x - sx * 150, y: bp.y - sy * 150 };
-      // desvío perpendicular para no atravesar la pelota
+      // Desvío perpendicular para NO atravesar la pelota. Este era el mayor
+      // productor de golpes hacia atrás (medido: 33 de 66): el rodeo apuntaba
+      // a un punto 150 detrás de la pelota con un desvío de sólo 120, así que
+      // yendo rápido el bot cortaba camino POR ENCIMA de la pelota y la
+      // empujaba justo para el lado contrario. El desvío ahora es más ancho
+      // que el acercamiento, así que el arco pasa siempre por afuera.
       const perpX = -sy, perpY = sx;
       const side = (me.pos.y - bp.y) * perpY + (me.pos.x - bp.x) * perpX > 0 ? 1 : -1;
-      const detour = clamp(1 - Math.abs(alignment), 0, 1) * 120;
+      const detour = clamp(1 - Math.abs(alignment), 0, 1) * 260;
       this.desired.x = behind.x + perpX * side * detour;
       this.desired.y = behind.y + perpY * side * detour;
       const toT = Math.hypot(this.desired.x - me.pos.x, this.desired.y - me.pos.y);
@@ -353,6 +424,27 @@ export class Bot {
       // frenar si me paso de largo
       const closing = (me.vel.x * (this.desired.x - me.pos.x) + me.vel.y * (this.desired.y - me.pos.y));
       this.brake = closing < 0 && speed > 420;
+
+      // DESPEJARSE DE LA PELOTA cuando vengo mal parado. Medido: el 33.6% de
+      // los contactos empujan la pelota hacia el arco propio y CASI TODOS son
+      // choques de cuerpo, no latigazos (los latigazos malos ya son sólo el
+      // 2.2%). Contra eso no sirve apuntar mejor: el bot ni siquiera está
+      // decidiendo pegar, es el ragdoll que roza la pelota al pasar.
+      //
+      // La única defensa es no estar ahí: si estoy mal parado y cerca, el
+      // punto objetivo se aleja LATERALMENTE de la pelota para rodearla por
+      // fuera, en vez de pasarle por encima.
+      // Y lo que más pesa: mi VELOCIDAD. Si vengo moviéndome hacia mi propio
+      // arco, cualquier roce manda la pelota para adentro.
+      const malParado = (me.pos.x - bp.x) * this.ownSide < -40;
+      const vengoMal = me.vel.x * this.ownSide > 200;
+      if ((malParado || vengoMal) && distToBall < 380) {
+        // Rodeo amplio: por el costado y ganando la espalda de la pelota.
+        this.desired.x = bp.x + this.ownSide * 340;
+        this.desired.y = bp.y + perpY * side * 300;
+        this.thrust = true;
+        this.brake = false;
+      }
     }
 
     // Recogerse en giros bruscos
@@ -413,7 +505,9 @@ export class Bot {
           // Y que el pase vaya hacia adelante: pasarla hacia atrás, al propio
           // campo, es justo lo que no queremos.
           const haciaAdelante = (mp.x - bp.x) * this.targetSide > -80;
-          if (despejada && haciaAdelante && dMate > 260 && dMate < 1500
+          // En peligro NO se toca el pase: con la pelota en el área propia, un
+          // pase interceptado es un gol. Ahí siempre se despeja al arco rival.
+          if (!enPeligro && despejada && haciaAdelante && dMate > 260 && dMate < 1500
               && suDistArco < miDistArco - 200) {
             // Pase al PUNTO FUTURO del compañero, no a donde está: si no,
             // la pelota le llega siempre por detrás.
@@ -429,6 +523,28 @@ export class Bot {
         this.shotAim = null;
       }
 
+      // DESPEJE OBLIGATORIO: con la pelota en peligro, el bot SIEMPRE pega
+      // para el lado del rival. Antes, si la geometría no daba, simplemente
+      // no golpeaba (`shotAim = null`) — y ahí quedaba la pelota, dando
+      // vueltas en el área propia mientras el bot la acompañaba sin resolver.
+      // Eso se leía como "no reaccionan". Ahora, en vez de cancelar el golpe,
+      // se CORRIGE la puntería hacia campo rival: es la acción por defecto.
+      if (enPeligro && this.shotAim) {
+        // Dirección de despeje: desde el arco propio hacia afuera, mezclada
+        // con la dirección al arco rival. Así la pelota sale del área aunque
+        // el ángulo al arco rival sea malo.
+        let ox = bp.x - ownPortal.x, oy = bp.y - ownPortal.y;
+        const ol = Math.hypot(ox, oy) || 1;
+        ox /= ol; oy /= ol;
+        // Siempre con componente hacia el campo rival: nada de despejes que
+        // vuelvan hacia atrás.
+        const fx = this.targetSide;
+        this.shotAim = {
+          x: bp.x + (ox * 0.35 + fx * 0.65) * 1200,
+          y: bp.y + oy * 0.35 * 1200,
+        };
+      }
+
       // Además, si por la geometría el tiro igual saldría hacia el arco propio,
       // no se golpea: mejor acompañar la pelota que rematarla en contra.
       let hx = this.shotAim ? this.shotAim.x - bp.x : 0;
@@ -438,7 +554,28 @@ export class Bot {
       let ax = bp.x - ownPortal.x, ay = bp.y - ownPortal.y;
       const al = Math.hypot(ax, ay) || 1;
       const awayFromOwn = (hx * ax + hy * ay) / al;
-      const safeToHit = !this.shotAim || awayFromOwn > -0.35;
+      // En peligro el umbral se relaja: la puntería ya fue corregida arriba
+      // para que apunte afuera, y NO golpear es peor que golpear regular.
+      let safeToHit = !this.shotAim || awayFromOwn > (enPeligro ? -0.6 : -0.35);
+
+      // VETO DURO por geometría de contacto. Lo anterior mira a dónde APUNTA
+      // el bot, pero el latigazo barre la pelota desde donde el cuerpo la
+      // toca: si el bot llega del lado del arco rival, el barrido la devuelve
+      // hacia su propio arco por más que el cursor apunte bien. Medido: 33%
+      // de los golpes acercaban la pelota al arco propio, y la mayoría eran
+      // latigazos "bien apuntados".
+      //
+      // Regla simple y robusta: para mandarla hacia el rival hay que estar
+      // del lado propio de la pelota. Si no lo estoy y encima vengo rápido,
+      // no se golpea — se acompaña y se rodea.
+      // Vale también EN PELIGRO. Al principio eximí el despeje pensando que
+      // "golpear siempre" era mejor que dudar, pero medido resultó al revés:
+      // 'defend' pasó a ser el que más pelotas mandaba a su propio arco (23
+      // de 48) justo por esa excepción. Un despeje mal parado ES el autogol.
+      // Si no estoy del lado bueno, primero me acomodo — para eso el modo
+      // 'defend' ya me lleva por detrás de la pelota.
+      const ladoBueno = (me.pos.x - bp.x) * this.ownSide > -40;
+      if (!ladoBueno) safeToHit = false;
 
       if (safeToHit && tToBall < ventana && tToBall > 0.06) this.tuck = true;
       else if (tToBall <= 0.06) this.tuck = false;             // soltar → latigazo

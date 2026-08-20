@@ -134,10 +134,19 @@ function makeTeam(team, side) {
   return out;
 }
 
-const teamA = makeTeam('p1', -1);   // izquierda
+// LADO DE SALIDA AL AZAR: cada partido podés arrancar defendiendo el portal
+// izquierdo o el derecho. Sin esto la cancha se juega siempre en el mismo
+// sentido y el partido se vuelve mecánico. `?side=` lo fuerza (útil para
+// pruebas reproducibles).
+const SIDE_PARAM = params.get('side');
+const MY_SIDE = SIDE_PARAM === 'izq' ? -1
+  : SIDE_PARAM === 'der' ? +1
+  : (Math.random() < 0.5 ? -1 : +1);
+
+const teamA = makeTeam('p1', MY_SIDE);
 // En práctica no hay rivales: la cancha queda libre para probar sin que nadie
 // te dispute la pelota. El equipo rival simplemente no se crea.
-const teamB = PRACTICE ? [] : makeTeam('p2', +1);   // derecha
+const teamB = PRACTICE ? [] : makeTeam('p2', -MY_SIDE);
 const players = [...teamA, ...teamB];
 const playerA = teamA[0];           // el humano
 const playerB = teamB[0] ?? null;   // rival principal (null en práctica)
