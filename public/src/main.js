@@ -25,12 +25,9 @@ import { interactPlayerBall, interactPlayers, clampRiderArena } from './collisio
 import { emitTrail } from './characters.js';
 
 // ── Tuning dash + giro ────────────────────────────────────────────────────
-const DASH = {
-  power:      1600,
-  duration:   0.07,
-  maxCharges: 2,
-  recharge:   4.0,
-};
+// El dash ahora vive en CFG.dash (config.js): así los bots lo comparten en
+// vez de tener su propia copia de los números.
+const DASH = CFG.dash;
 
 const SPIN = {
   dur:       0.40,

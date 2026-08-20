@@ -59,6 +59,16 @@ export class Bot {
     this.stuckT = 0;    // detector de scrum trabado
     this.backoffT = 0;  // maniobra: retroceder y volver a embestir
     this.wantsBoost = false;
+    // Dash propio del bot: 2 cargas independientes, igual que el humano.
+    // Antes esto no existía y los bots nunca usaban Space — vivía sólo como
+    // `dashState` ligado a `playerA` en main.js.
+    this.dash = {
+      charges: 2,
+      rechargeT: 0,
+      active: false,
+      t: 0,
+    };
+    this.wantsDash = false;
   }
 
   update(dt, world) {
@@ -75,6 +85,39 @@ export class Bot {
       this.stuckT = Math.max(this.stuckT - dt * 2, 0);
     }
     if (this.backoffT > 0) this.backoffT -= dt;
+
+    // ── Dash: recarga y disparo ─────────────────────────────────────────
+    // Calcado del dash del humano en main.js (mismo CFG.dash), pero corre acá
+    // porque cada bot tiene su propio estado. Recarga por tiempo con 2 cargas
+    // independientes; MAGIA (mods.dashRecharge) lo acelera igual que al humano.
+    const D = CFG.dash;
+    if (this.dash.charges < D.maxCharges) {
+      this.dash.rechargeT += dt / this.player.mods.dashRecharge;
+      if (this.dash.rechargeT >= D.recharge) {
+        this.dash.charges++;
+        this.dash.rechargeT = this.dash.charges < D.maxCharges
+          ? this.dash.rechargeT - D.recharge : 0;
+      }
+    }
+    if (this.dash.active) {
+      this.dash.t += dt;
+      if (this.dash.t >= D.duration) this.dash.active = false;
+    }
+    // Disparo: mismo candado que el humano (match.dashAllowed — nada de
+    // robar la pelota del saque con un dash instantáneo).
+    if (this.wantsDash && this.dash.charges > 0 && !this.dash.active
+        && world.match?.dashAllowed?.()) {
+      this.dash.charges--;
+      this.dash.active = true;
+      this.dash.t = 0;
+      const dir = me.dir();
+      const dashP = D.power * this.player.mods.dashPower;
+      me.vel.x += dir.x * dashP;
+      me.vel.y += dir.y * dashP;
+      world.particles?.impact?.(me.pos.x, me.pos.y, 320);
+      world.sound?.pop?.();
+      this.wantsDash = false;
+    }
 
     // Replanteo INMEDIATO si la pelota cambió de rumbo fuerte (alguien le
     // pegó) o si pasa cerca a toda velocidad. Con la ventana fija de ~11 Hz,
@@ -636,6 +679,25 @@ export class Bot {
     const boostWorthIt = (yendoALaPelota || distToBall > (persona.boostCerca ? 230 : 320))
       && hayReserva;
     this.wantsBoost = this.thrust && boostWorthIt && Math.abs(diff) < 1.0;
+
+    // DASH: el bot nunca lo usaba (Space quedaba ligado sólo al humano en
+    // main.js). Dos casos, calcados de cómo lo usa un humano que juega bien:
+    //
+    //  1) REMATE: a poca distancia, bien alineado y encarando la pelota, el
+    //     empujón de golpe llega antes y con más fuerza que sólo el vuelo. Es
+    //     lo que hace que un despeje o un tiro se sienta contundente.
+    //  2) EMERGENCIA: la pelota está en peligro y hay que llegar YA — no
+    //     hay tiempo de esperar el vuelo normal.
+    //
+    // Igual que el humano: exige estar bien encarado (si no, el dash tira la
+    // escoba para cualquier lado) y no lo gasta si ya viene frenando.
+    const encarado = Math.abs(diff) < 0.35;
+    const rematando = (this.mode === 'attack' || this.mode === 'flank')
+      && distToBall < 260 && distToBall > 60 && alignment < -0.15;
+    const emergencia = (this.mode === 'defend' || enPeligro)
+      && distToBall < 340 && distToBall > 60;
+    this.wantsDash = this.dash.charges > 0 && !this.dash.active && encarado
+      && this.thrust && !this.brake && (rematando || emergencia);
 
     // ORBE DE PASO: si estoy seco y hay un orbe prácticamente en el camino a
     // donde ya iba, se pasa por él. No es un desvío a buscarlo — sólo se

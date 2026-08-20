@@ -388,6 +388,16 @@ export const CFG = {
     dashLockout: 5.0,
   },
 
+  // Dash (Space / doble toque). Vivía como const suelta en main.js, atada
+  // sólo al humano — por eso los bots nunca lo usaban. Ahora es la fuente
+  // única para humano Y bots.
+  dash: {
+    power:      1600,
+    duration:   0.07,
+    maxCharges: 2,
+    recharge:   4.0,
+  },
+
   // Colores de equipos y mundo
   colors: {
     p1: '#3fc0ff', p1Dark: '#155f92', p1Glow: 'rgba(63,192,255,0.55)',
