@@ -304,6 +304,12 @@ function lerpFrame(a, b, k) {
         team: pa.team,
         index: pa.index,
         isHuman: pa.isHuman,
+        // El personaje NO se interpola pero hay que arrastrarlo: acá se
+        // reconstruye el objeto del jugador desde cero, y olvidarlo hacía
+        // que el frame que llega al render no tuviera characterId. El
+        // snapshot lo guardaba bien — se perdía en este paso, y por eso la
+        // repetición dibujaba a todos con el mago por defecto.
+        characterId: pa.characterId,
         broom: {
           x: mix(pa.broom.x, pb.broom.x, k),
           y: mix(pa.broom.y, pb.broom.y, k),

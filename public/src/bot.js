@@ -93,8 +93,11 @@ export class Bot {
       // un humano: el bot deja de "comprometerse" con una decisión vieja
       // mientras la jugada ya cambió. La dificultad estira o acorta esta
       // ventana — un bot fácil reacciona tarde a lo que acaba de pasar.
+      // De 0.09 a 0.06 (~16 Hz): replantear más seguido es lo que hace que
+      // el bot no "demore" en salir a buscar la pelota. Con 0.09 se quedaba
+      // hasta 90 ms comprometido con una decisión vieja.
       const pThink = (PERSONAS[this.player.characterId] ?? {}).thinkMul ?? 1;
-      this.decideT = 0.09 * this.diff.think * pThink;
+      this.decideT = 0.06 * this.diff.think * pThink;
       this._decide(world);
     }
 
@@ -251,6 +254,28 @@ export class Bot {
         this.desired.x = ownPortal.x * 0.62 + bp.x * 0.38;
         this.desired.y = ownPortal.y * 0.62 + bp.y * 0.38;
         this.wantsBoost = false;
+
+        // RECARGAR mientras no hay peligro. Con los orbes en las esquinas los
+        // bots no pasaban nunca por ellos y jugaban SIEMPRE sin impulso:
+        // medido, querían boost el 47% del tiempo pero sólo lo tenían el 5%,
+        // con la reserva vacía el 88% del partido. Eso es lo que los hacía
+        // ver lentos. El que cubre y no tiene nada urgente que hacer va a
+        // buscar el orbe más cercano que le quede de camino al arco.
+        if (this.player.energy < 45 && world.orbs?.orbs) {
+          let mejor = null, mejorD = 1e9;
+          for (const o of world.orbs.orbs) {
+            if (!o.alive) continue;
+            const d = Math.hypot(o.fx - me.pos.x, o.fy - me.pos.y);
+            // Sólo si está de mi lado de la cancha: no cruzar el mapa entero.
+            if ((o.x - ownPortal.x) * -this.ownSide > halfW * 1.1) continue;
+            if (d < mejorD) { mejorD = d; mejor = o; }
+          }
+          if (mejor && mejorD < 1300) {
+            this.desired.x = mejor.fx;
+            this.desired.y = mejor.fy;
+            this.wantsBoost = false;   // no gastar lo poco que queda
+          }
+        }
       }
 
       const toT = Math.hypot(this.desired.x - me.pos.x, this.desired.y - me.pos.y);
@@ -469,7 +494,11 @@ export class Bot {
       // Ízar francotirador: entra en ventana de golpe mucho antes → carga
       // el latigazo más tiempo → llega con el tiro a tope (y de fuego, si
       // tiene reserva). Es SU forma de jugar.
-      const ventana = persona.francotirador ? 0.55 : 0.34;
+      // Ventana de carga más ancha (0.34 → 0.50): con la ventana corta el bot
+      // llegaba a la pelota SIN el latigazo armado y la empujaba con el cuerpo
+      // en vez de pegarle. Medido: estaba cerca de la pelota sin armar el
+      // golpe el 61% del tiempo. Cargar antes = llegar con el tiro listo.
+      const ventana = persona.francotirador ? 0.70 : 0.50;
       const aboutToHit = tToBall < ventana;
 
       if (aboutToHit) {
@@ -574,7 +603,12 @@ export class Bot {
       // de 48) justo por esa excepción. Un despeje mal parado ES el autogol.
       // Si no estoy del lado bueno, primero me acomodo — para eso el modo
       // 'defend' ya me lleva por detrás de la pelota.
-      const ladoBueno = (me.pos.x - bp.x) * this.ownSide > -40;
+      // El margen pasa de -40 a -170: con -40 el veto era tan estricto que
+      // bloqueaba casi cualquier tiro y los bots se veían pasivos ("tienen la
+      // ocasión y no le pegan"). -170 sigue frenando el golpe claramente malo
+      // —el que sale de frente al arco propio— pero deja pasar el tiro normal
+      // desde el costado, que es la mayoría.
+      const ladoBueno = (me.pos.x - bp.x) * this.ownSide > -170;
       if (!ladoBueno) safeToHit = false;
 
       if (safeToHit && tToBall < ventana && tToBall > 0.06) this.tuck = true;
@@ -587,12 +621,48 @@ export class Bot {
     // Boost: antes solo lo usaba lejos y atacando, así que en defensa llegaba
     // caminando a tapar. Ahora también cubre la carrera defensiva, que es
     // donde un humano hacía la diferencia yendo con impulso.
-    const boostWorthIt = distToBall > (persona.boostCerca ? 230 : 320) || this.mode === 'defend';
-    this.wantsBoost = this.thrust && boostWorthIt && Math.abs(diff) < 0.6;
+    // MÁXIMO ESFUERZO POR LA PELOTA. Antes el bot sólo usaba impulso lejos o
+    // defendiendo, y medido volaba a 494 de media teniendo ~830 disponibles:
+    // iba paseando a buscar la pelota. Ahora acelera a fondo siempre que esté
+    // yendo a la pelota o a despejar, y el ángulo permitido es más ancho
+    // (0.6 → 1.0 rad) para que no pierda el impulso en cada corrección.
+    const yendoALaPelota = this.mode === 'attack' || this.mode === 'defend'
+      || this.mode === 'flank' || this.mode === 'runner';
+    // Y se reserva un mínimo para la carrera que importa: quemar la barra en
+    // un traslado cualquiera deja al bot sin nada cuando hay que llegar a
+    // despejar. Con la reserva baja sólo se gasta si es urgente de verdad.
+    const urgente = this.mode === 'defend' || enPeligro || distToBall > 700;
+    const hayReserva = this.player.energy > (urgente ? 12 : 45);
+    const boostWorthIt = (yendoALaPelota || distToBall > (persona.boostCerca ? 230 : 320))
+      && hayReserva;
+    this.wantsBoost = this.thrust && boostWorthIt && Math.abs(diff) < 1.0;
+
+    // ORBE DE PASO: si estoy seco y hay un orbe prácticamente en el camino a
+    // donde ya iba, se pasa por él. No es un desvío a buscarlo — sólo se
+    // acepta si casi no alarga el recorrido, así el bot no abandona la jugada
+    // pero deja de jugar todo el partido con la barra en cero.
+    if (this.player.energy < 25 && world.orbs?.orbs && this.mode !== 'defend' && !enPeligro) {
+      const dDest = Math.hypot(this.desired.x - me.pos.x, this.desired.y - me.pos.y);
+      for (const o of world.orbs.orbs) {
+        if (!o.alive) continue;
+        const dOrb = Math.hypot(o.fx - me.pos.x, o.fy - me.pos.y);
+        const dOrbDest = Math.hypot(this.desired.x - o.fx, this.desired.y - o.fy);
+        // Desvío total contra ruta directa: hasta un 35% más largo se acepta.
+        if (dOrb + dOrbDest < dDest * 1.35 + 120) {
+          this.desired.x = o.fx;
+          this.desired.y = o.fy;
+          break;
+        }
+      }
+    }
 
     // Error humano (menos cuando está encima de la pelota). La personalidad
     // afina o empeora la puntería: Hilaria teje fino, Fogón condimenta de más.
-    const n = (distToBall < 220 ? 9 : 30) * this.diff.aim * (persona.aimMul ?? 1);
+    //
+    // Bajado bastante (9→4 cerca, 30→16 lejos): el ruido alto hacía que los
+    // tiros salieran desviados incluso con la decisión correcta, y se leía
+    // como que el bot "no sabe pegarle". La dificultad sigue escalándolo.
+    const n = (distToBall < 220 ? 4 : 16) * this.diff.aim * (persona.aimMul ?? 1);
     this.noise.x = rand(-n, n);
     this.noise.y = rand(-n, n);
   }

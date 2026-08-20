@@ -196,12 +196,17 @@ export const CFG = {
   orbs: {
     r: 17,               // radio visual
     pickupR: 85,         // radio de recolección: generoso, roza y ya es tuyo
-    energy: 50,          // medio tanque por orbe: dos llenan la reserva
+    // Un tanque entero por orbe. Con 4 orbes en las esquinas (en vez de 12
+    // repartidos) la cancha producía 44 de energía por segundo contra 64 de
+    // demanda entre 4 jugadores: todos jugaban SIEMPRE sin impulso — medido,
+    // reserva vacía el 88% del partido. Ir hasta una esquina tiene que pagar
+    // el viaje.
+    energy: 100,         // tanque lleno: el viaje a la esquina vale la pena
     // Con sólo 4 orbes y hasta 4 jugadores, 7 s dejaba las esquinas vacías
     // casi siempre (medido: 1 de 4 vivo en pleno partido) y el turbo se volvía
     // inaccesible. 4.5 s mantiene las esquinas como un recurso que vale la
     // pena visitar sin regalarlo.
-    respawn: 4.5,        // segundos hasta reaparecer
+    respawn: 3.5,        // segundos hasta reaparecer
     fadeIn: 1.1,         // animación de regreso, para poder anticiparlo
     bobAmp: 9,           // amplitud del flotar
     bobSpeed: 1.6,
