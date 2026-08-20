@@ -20,7 +20,7 @@ export const CFG = {
   // arte y la física comparten exactamente las mismas coordenadas y nada
   // queda desalineado. La cámara es fija: siempre se ve el mapa completo.
   arena: {
-    src: '1%20mapa.jpeg', // relativo: funciona igual en localhost y en un subpath (GitHub Pages)
+    src: '1%20mapa.jpeg', // relativo: funciona igual servido desde raíz o subpath
     scale: MAP,
     imgW: 2752 * MAP,
     imgH: 1536 * MAP,

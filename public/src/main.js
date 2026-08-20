@@ -1195,5 +1195,5 @@ window.__sim = (seconds = 10) => {
 };
 
 console.log('%c🧹 Escoba Voladora', 'font-size:16px;color:#3fc0ff');
-console.log('Mouse: apuntar · LMB: acelerar · RMB: frenar · Space: recogerse');
+console.log('Mouse: apuntar · LMB: golpe cargado · RMB: flotar · Space: dash · Shift: boost');
 console.log('P: pausa · R: reiniciar · F3: debug físicas');
