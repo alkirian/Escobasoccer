@@ -91,11 +91,15 @@ export class Bot {
     // porque cada bot tiene su propio estado. Recarga por tiempo con 2 cargas
     // independientes; MAGIA (mods.dashRecharge) lo acelera igual que al humano.
     const D = CFG.dash;
-    if (this.dash.charges < D.maxCharges) {
+    // PASIVA de Zefir — "Tercer impulso": una carga extra, también para el
+    // bot que lo juegue. Se calcula acá y no en el constructor porque el
+    // characterId se asigna después de crear el bot.
+    const dashMax = D.maxCharges + (this.player.characterId === 'zefir' ? 1 : 0);
+    if (this.dash.charges < dashMax) {
       this.dash.rechargeT += dt / this.player.mods.dashRecharge;
       if (this.dash.rechargeT >= D.recharge) {
         this.dash.charges++;
-        this.dash.rechargeT = this.dash.charges < D.maxCharges
+        this.dash.rechargeT = this.dash.charges < dashMax
           ? this.dash.rechargeT - D.recharge : 0;
       }
     }

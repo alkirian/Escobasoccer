@@ -60,6 +60,383 @@
 </head>
 <body>
   <canvas id="game"></canvas>
+
+  <!-- ══ HUD del partido ═══════════════════════════════════════════════════
+       Antes todo esto se pintaba a mano sobre el canvas (render.js). Ahora es
+       DOM: se estila con CSS (gradientes, blur real, hover de verdad) y los
+       botones son botones. hud.js sincroniza estos nodos con el estado del
+       juego una vez por frame. El overlay no captura el mouse (pointer-events
+       none) salvo en los botones. -->
+  <div id="hud">
+
+    <!-- Marcador superior: placa de vidrio con escudos y reloj -->
+    <div class="score glass" id="score">
+      <div class="crest p1"><span id="scoreP1">0</span></div>
+      <div class="mid">
+        <b id="clock">2:30</b>
+        <small id="clockSub">TÚ · RIVAL</small>
+      </div>
+      <div class="crest p2"><span id="scoreP2">0</span></div>
+    </div>
+
+    <!-- Práctica: reemplaza al marcador -->
+    <div class="practice glass" id="practiceTop">🎯 PRÁCTICA — cancha libre</div>
+
+    <!-- Recursos abajo a la izquierda: dash + energía -->
+    <div id="resources">
+      <div class="dashrow">
+        <span class="bolt" id="bolt0">⚡</span>
+        <span class="bolt" id="bolt1">⚡</span>
+        <span class="bolt hide" id="bolt2">⚡</span>
+        <span class="reskey" id="dashLabel">ESPACIO</span>
+      </div>
+      <div class="energywrap" id="energyWrap">
+        <div class="energybar"><i id="energyFill"></i></div>
+        <span class="reskey" id="energyLabel">ENERGÍA · SHIFT</span>
+      </div>
+    </div>
+
+    <!-- Texto grande del centro: cuenta regresiva, ¡YA!, ¡GOOOL! -->
+    <div id="bigtext">
+      <div class="big" id="bigMain"></div>
+      <div class="sub" id="bigSub"></div>
+      <div class="torneoIntro" id="torneoIntro"></div>
+    </div>
+
+    <!-- Lección del coach: pastilla con keycap, posicionada por JS -->
+    <div class="coach" id="coachPill">
+      <kbd id="coachKey">CLICK</kbd><span id="coachText"></span>
+    </div>
+    <div class="coachflash" id="coachFlash">✓ ¡Bien!</div>
+
+    <!-- Repetición: franjas de transmisión + progreso -->
+    <div id="replayui">
+      <div class="rbar top">
+        <span class="rec"></span> REPETICIÓN
+        <b id="replayWho"></b>
+        <i class="rprog"><u id="replayProg"></u></i>
+        <span class="rskip">ESPACIO&nbsp; saltear</span>
+      </div>
+      <div class="rbar bottom"></div>
+    </div>
+
+    <!-- Pausa -->
+    <div class="overlay" id="pauseScreen">
+      <h1>PAUSA</h1>
+      <div class="btncol">
+        <button class="btn gold" data-act="continuar">Continuar</button>
+        <button class="btn" data-act="controles">Controles</button>
+        <button class="btn" data-act="menu">Menú principal</button>
+        <button class="btn danger" data-act="salir">Salir</button>
+      </div>
+      <p class="note" id="closeNote">Tu navegador no deja cerrar la pestaña desde acá — cerrala con Ctrl+W</p>
+      <p class="foot">ESC continúa · R reinicia el partido</p>
+    </div>
+
+    <!-- Cómo se juega -->
+    <div class="overlay" id="controlsScreen">
+      <h1>CÓMO SE JUEGA</h1>
+      <div class="keylist">
+        <div><kbd>MOUSE</kbd><span>Apuntás y movés la escoba</span></div>
+        <div><kbd>CLICK</kbd><span>Mantené y soltá: golpe (más carga = más fuerza)</span></div>
+        <div><kbd>ESPACIO</kbd><span>Dash — tenés 2 cargas</span></div>
+        <div><kbd>SHIFT</kbd><span>Propulsión, gasta energía</span></div>
+        <div><kbd>ESC</kbd><span>Pausa</span></div>
+      </div>
+      <button class="btn gold big" id="btnCloseControls">▶ ¡A JUGAR!</button>
+      <p class="foot">Click o ENTER para empezar</p>
+    </div>
+
+    <!-- Fin de partido -->
+    <div class="overlay trans" id="endScreen">
+      <h1 id="endTitle">¡VICTORIA!</h1>
+      <div class="finalscore" id="endScore">0 — 0</div>
+      <div class="btnrow" id="endButtons">
+        <button class="btn gold big" data-act="revancha">⚔ Revancha</button>
+        <button class="btn" data-act="menu">Menú</button>
+      </div>
+      <p class="tapline" id="endTap"></p>
+      <p class="statline" id="endStats"></p>
+      <p class="recordline" id="endRecord"></p>
+    </div>
+  </div>
+
+  <style>
+    /* ══ Sistema de diseño del HUD ══════════════════════════════════════ */
+    #hud {
+      position: fixed; inset: 0; z-index: 20;
+      pointer-events: none;           /* el juego recibe el mouse */
+      font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #e8ecff;
+      user-select: none;
+      --gold1: #ffe98a; --gold2: #ffd54a; --gold3: #ffb52e; --gold4: #f09a1a;
+      --p1: #3fc0ff; --p2: #ff8a3c;
+    }
+    #hud .hide { display: none !important; }
+
+    /* Panel de vidrio: blur real detrás (imposible en canvas) */
+    .glass {
+      background: linear-gradient(170deg, rgba(30,36,70,.72), rgba(14,17,36,.78));
+      backdrop-filter: blur(7px);
+      -webkit-backdrop-filter: blur(7px);
+      border: 1px solid transparent;
+      background-clip: padding-box;
+      box-shadow: 0 6px 24px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.09);
+    }
+
+    /* ── Marcador ── */
+    .score {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 18px;
+      padding: 9px 18px; border-radius: 18px;
+      border: 1px solid rgba(140,160,220,.28);
+    }
+    .score.golden { border-color: var(--gold2);
+      box-shadow: 0 6px 24px rgba(0,0,0,.45), 0 0 26px rgba(255,213,74,.35),
+                  inset 0 1px 0 rgba(255,255,255,.09);
+      animation: goldpulse 1.6s ease-in-out infinite; }
+    @keyframes goldpulse {
+      0%,100% { box-shadow: 0 6px 24px rgba(0,0,0,.45), 0 0 20px rgba(255,213,74,.3); }
+      50%     { box-shadow: 0 6px 24px rgba(0,0,0,.45), 0 0 38px rgba(255,213,74,.5); }
+    }
+    .crest {
+      width: 52px; height: 46px; display: grid; place-items: center;
+      font: 800 24px Georgia, serif; color: #10131f;
+      clip-path: polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%);
+      box-shadow: inset 0 2px 0 rgba(255,255,255,.4);
+      transition: transform .12s ease;
+    }
+    .crest.p1 { background: linear-gradient(170deg, #9fe0ff, var(--p1) 55%, #1d8fd0); }
+    .crest.p2 { background: linear-gradient(170deg, #ffc59a, var(--p2) 55%, #d95f10); }
+    .crest.punch { transform: scale(1.22); }
+    .score .mid { text-align: center; min-width: 86px; }
+    .score .mid b {
+      display: block; font: 800 26px Georgia, serif; letter-spacing: .03em;
+      text-shadow: 0 1px 3px rgba(0,0,0,.6);
+    }
+    .score .mid b.low { color: #ff8f6a; text-shadow: 0 0 12px rgba(255,110,60,.7); }
+    .score .mid b.goldentxt { color: var(--gold2); font-size: 17px; }
+    .score .mid small { color: rgba(210,200,240,.5); font-size: 9.5px; letter-spacing: .12em; }
+
+    .practice {
+      position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+      padding: 9px 22px; border-radius: 999px;
+      border: 1px solid rgba(126,232,162,.4);
+      color: #9df0b8; font-weight: 700; letter-spacing: .04em;
+    }
+
+    /* ── Recursos (dash + energía) ── */
+    #resources {
+      position: absolute; left: 18px; bottom: 22px;
+      display: flex; flex-direction: column; gap: 7px;
+    }
+    .dashrow { display: flex; align-items: center; gap: 7px; }
+    .bolt {
+      font-size: 21px; width: 34px; height: 34px;
+      display: grid; place-items: center; border-radius: 50%;
+      background: linear-gradient(170deg, rgba(34,41,80,.85), rgba(18,22,46,.9));
+      border: 1px solid rgba(140,160,220,.25);
+      filter: grayscale(1) brightness(.55);
+      transition: filter .15s, box-shadow .15s, transform .15s;
+      position: relative; overflow: hidden;
+    }
+    .bolt.lit {
+      filter: none;
+      box-shadow: 0 0 14px rgba(255,213,74,.5), inset 0 1px 0 rgba(255,255,255,.25);
+      border-color: rgba(255,213,74,.6);
+      animation: boltpop .18s ease;
+    }
+    @keyframes boltpop { 0% { transform: scale(.7); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+    /* Carga: el relleno sube de abajo hacia arriba (variable --f 0..1) */
+    .bolt.charging::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+      height: calc(var(--f, 0) * 100%);
+      background: linear-gradient(0deg, rgba(255,213,74,.45), rgba(255,213,74,.12));
+      transition: height .12s linear;
+    }
+    .reskey {
+      font: 700 10.5px system-ui; letter-spacing: .08em;
+      color: rgba(255,255,255,.82);
+      text-shadow: 0 1px 4px rgba(0,0,0,.9);
+    }
+    .reskey.locked { color: rgba(160,190,255,.85); }
+    .energywrap { display: flex; flex-direction: column; gap: 4px; }
+    .energybar {
+      width: 200px; height: 20px; border-radius: 999px;
+      background: rgba(0,0,20,.68);
+      border: 2px solid #00bfff;
+      box-shadow: 0 0 12px rgba(0,191,255,.4), inset 0 2px 6px rgba(0,0,0,.5);
+      overflow: hidden; position: relative;
+    }
+    .energybar i {
+      display: block; height: 100%; width: 0%;
+      border-radius: 999px 0 0 999px;
+      background: linear-gradient(180deg, #aaff46 0%, #50dc0a 45%, #239600 100%);
+      box-shadow: inset 0 3px 4px rgba(255,255,255,.35), 0 0 12px rgba(96,255,16,.5);
+      transition: width .12s linear;
+    }
+    .energywrap.boosting .energybar { box-shadow: 0 0 22px rgba(96,255,16,.55), inset 0 2px 6px rgba(0,0,0,.5); }
+    .energywrap.boosting .reskey { color: #b8ff8a; }
+    .energywrap.unlimited .energybar { border-color: var(--gold2);
+      box-shadow: 0 0 18px rgba(255,213,74,.55), inset 0 2px 6px rgba(0,0,0,.5); }
+    .energywrap.unlimited .energybar i {
+      background: linear-gradient(180deg, #fff8b4, #f0b414 50%, #b46400);
+      animation: unlpulse .9s ease-in-out infinite;
+    }
+    @keyframes unlpulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
+
+    /* ── Texto grande central ── */
+    #bigtext {
+      position: absolute; left: 0; right: 0; top: 26vh;
+      text-align: center; pointer-events: none;
+    }
+    #bigtext .big {
+      font: 800 clamp(64px, 12vw, 124px) Georgia, serif;
+      color: #fff; text-shadow: 0 0 34px rgba(120,180,255,.75), 0 4px 0 rgba(20,16,50,.8);
+    }
+    #bigtext .big.ya { color: #ffeb96; text-shadow: 0 0 34px rgba(255,200,80,.8), 0 4px 0 rgba(60,36,0,.6); }
+    #bigtext .big.goal { animation: goalpop .5s cubic-bezier(.2,1.6,.4,1); }
+    #bigtext .big.p1 { color: var(--p1); text-shadow: 0 0 46px rgba(63,192,255,.9), 0 5px 0 rgba(10,20,40,.9); }
+    #bigtext .big.p2 { color: var(--p2); text-shadow: 0 0 46px rgba(255,138,60,.9), 0 5px 0 rgba(40,16,4,.9); }
+    @keyframes goalpop { 0% { transform: scale(1.5); opacity: .3; } 100% { transform: scale(1); opacity: 1; } }
+    #bigtext .big.count { animation: countin .32s cubic-bezier(.2,1.5,.5,1); }
+    @keyframes countin { 0% { transform: scale(1.7); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    #bigtext .sub { font: 24px Georgia, serif; color: rgba(255,255,255,.85); margin-top: 6px; }
+    .torneoIntro { margin-top: 12px; font: 700 24px Georgia, serif; color: var(--gold2); }
+    .torneoIntro small { display: block; font: 400 15px Georgia, serif; color: rgba(232,236,255,.8); }
+    .torneoIntro em { display: block; font: italic 400 13px Georgia, serif; color: rgba(210,200,240,.6); }
+
+    /* ── Coach ── */
+    .coach {
+      position: absolute; transform: translate(-50%, -50%);
+      display: flex; align-items: center; gap: 9px;
+      padding: 8px 14px; border-radius: 12px;
+      background: linear-gradient(170deg, rgba(16,14,40,.92), rgba(8,6,22,.94));
+      border: 1px solid rgba(120,200,255,.5);
+      box-shadow: 0 6px 20px rgba(0,0,0,.5), 0 0 18px rgba(63,192,255,.15);
+      animation: coachpulse 1.9s ease-in-out infinite;
+      white-space: nowrap;
+    }
+    @keyframes coachpulse { 0%,100% { opacity: .92; } 50% { opacity: 1; } }
+    .coach span { font-size: 14px; color: rgba(240,236,255,.94); }
+    kbd {
+      font: 700 12px system-ui; letter-spacing: .04em;
+      color: var(--p1);
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(120,200,255,.55);
+      border-bottom-width: 2.5px;
+      border-radius: 7px; padding: 3px 9px;
+    }
+    .coachflash {
+      position: absolute; transform: translate(-50%, -50%);
+      font: 800 24px Georgia, serif; color: #8effb8;
+      text-shadow: 0 0 16px rgba(110,231,160,.9), 0 2px 0 rgba(0,40,16,.7);
+      animation: flashup .9s ease forwards;
+    }
+    @keyframes flashup {
+      0% { opacity: 0; margin-top: 6px; } 15% { opacity: 1; }
+      100% { opacity: 0; margin-top: -22px; }
+    }
+
+    /* ── Repetición ── */
+    #replayui .rbar {
+      position: absolute; left: 0; right: 0; height: 7.5vh;
+      background: rgba(4,3,12,.93);
+      display: flex; align-items: center; gap: 12px; padding: 0 26px;
+      font: 700 14px Georgia, serif; letter-spacing: .05em;
+    }
+    #replayui .rbar.top { top: 0; }
+    #replayui .rbar.bottom { bottom: 0; }
+    .rec { width: 11px; height: 11px; border-radius: 50%; background: #ff5050;
+      animation: recblink 1s ease-in-out infinite; }
+    @keyframes recblink { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+    #replayWho.p1 { color: var(--p1); } #replayWho.p2 { color: var(--p2); }
+    .rprog { flex: 1; max-width: 300px; height: 4px; margin-left: auto;
+      background: rgba(255,255,255,.16); border-radius: 2px; overflow: hidden; }
+    .rprog u { display: block; height: 100%; width: 0%; background: rgba(255,255,255,.8); }
+    .rskip { font: 400 13px Georgia, serif; color: rgba(255,255,255,.55); }
+
+    /* ── Overlays (pausa / controles / fin) ── */
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; text-align: center;
+      background: rgba(5,4,15,.68);
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+      pointer-events: auto;
+    }
+    .overlay.trans { background: rgba(5,4,15,.2); backdrop-filter: none; -webkit-backdrop-filter: none; }
+    .overlay h1 {
+      font: 800 clamp(40px, 7vw, 60px) Georgia, serif; letter-spacing: .04em;
+      text-shadow: 0 0 28px rgba(120,180,255,.6), 0 3px 0 rgba(15,12,40,.9);
+    }
+    #endScreen h1 { font-size: clamp(56px, 10vw, 92px); }
+    #endScreen h1.win  { color: var(--gold2); text-shadow: 0 0 44px rgba(255,213,74,.75), 0 4px 0 rgba(70,44,0,.8); }
+    #endScreen h1.lose { color: #b08cff; text-shadow: 0 0 34px rgba(176,140,255,.6), 0 4px 0 rgba(30,12,60,.8); }
+    .finalscore { font: 800 42px Georgia, serif; color: rgba(255,255,255,.92); }
+    .tapline { font: 22px Georgia, serif; color: rgba(255,255,255,.75); animation: coachpulse 1.4s infinite; }
+    .statline { font: 17px Georgia, serif; color: rgba(210,200,240,.85); }
+    .recordline { font: 700 22px Georgia, serif; color: var(--gold2);
+      text-shadow: 0 0 16px rgba(255,213,74,.6); }
+    .note { font-size: 13px; color: rgba(255,255,255,.6); }
+    .foot { position: absolute; bottom: 22px; font-size: 13px; color: rgba(232,230,245,.4); }
+
+    /* Lista de teclas de la pantalla de controles */
+    .keylist { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 10px; }
+    .keylist div { display: flex; align-items: center; gap: 14px; text-align: left; }
+    .keylist kbd { min-width: 92px; text-align: center; padding: 6px 10px; font-size: 13px; }
+    .keylist span { font-size: 15.5px; color: rgba(232,236,255,.85); }
+
+    /* ── Botones: el mismo lenguaje del menú ── */
+    .btncol { display: flex; flex-direction: column; gap: 12px; width: min(300px, 80vw); }
+    .btnrow { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    .btn {
+      position: relative; overflow: hidden;
+      font: 700 17px system-ui; letter-spacing: .02em;
+      padding: 13px 30px; border-radius: 999px;
+      border: 1px solid transparent;
+      background:
+        linear-gradient(165deg, #232a56 0%, #171c38 60%, #121629 100%) padding-box,
+        linear-gradient(160deg, rgba(120,160,255,.5), rgba(60,80,140,.15) 45%, rgba(63,192,255,.35)) border-box;
+      color: #e8ecff; cursor: pointer;
+      box-shadow: 0 5px 18px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08);
+      transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+    .btn::after {
+      content: ''; position: absolute; top: 0; bottom: 0; left: -70%; width: 45%;
+      background: linear-gradient(100deg, transparent, rgba(190,220,255,.18), transparent);
+      transform: skewX(-18deg); transition: left .4s ease; pointer-events: none;
+    }
+    .btn:hover::after { left: 125%; }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 26px rgba(0,0,0,.5), 0 0 22px rgba(63,192,255,.25),
+                  inset 0 1px 0 rgba(255,255,255,.12);
+    }
+    .btn:active { transform: translateY(0) scale(.98); transition-duration: .05s; }
+    .btn.gold {
+      background:
+        linear-gradient(170deg, var(--gold1) 0%, var(--gold2) 38%, var(--gold3) 78%, var(--gold4) 100%) padding-box,
+        linear-gradient(160deg, #fff3b8, #ffc93a 50%, #ff9d2e) border-box;
+      color: #201700; text-shadow: 0 1px 0 rgba(255,255,255,.35);
+      box-shadow: 0 6px 20px rgba(255,170,40,.4), 0 0 34px rgba(255,213,74,.3),
+                  inset 0 1px 0 rgba(255,255,255,.55), inset 0 -7px 14px rgba(200,110,0,.26);
+    }
+    .btn.gold::after { background: linear-gradient(100deg, transparent, rgba(255,255,255,.5), transparent); }
+    .btn.gold:hover {
+      box-shadow: 0 10px 28px rgba(255,170,40,.55), 0 0 54px rgba(255,213,74,.5),
+                  inset 0 1px 0 rgba(255,255,255,.65), inset 0 -7px 14px rgba(200,110,0,.22);
+    }
+    .btn.big { font-size: 20px; padding: 16px 46px; font-family: Georgia, serif; }
+    .btn.danger {
+      background:
+        linear-gradient(165deg, #3a2030 0%, #221421 100%) padding-box,
+        linear-gradient(160deg, rgba(255,120,140,.55), rgba(120,40,60,.2)) border-box;
+      color: #ffb0be;
+    }
+    .btn.danger:hover { box-shadow: 0 10px 26px rgba(0,0,0,.5), 0 0 22px rgba(255,110,130,.3); }
+  </style>
+
   <div id="loading">
     <div class="broom">🧹</div>
     <div>Escoba Voladora</div>

@@ -69,6 +69,8 @@ export class Renderer {
     const st = world.match?.state;
     if (st === 'play' && this._prevState === 'countdown') this._yaUntil = this.t + 0.8;
     this._prevState = st;
+    // El HUD (DOM) muestra el cartel; acá solo se decide CUÁNDO.
+    world.yaVisible = st === 'play' && this._yaUntil > this.t;
     const ctx = this.ctx;
     const W = this.canvas.clientWidth, H = this.canvas.clientHeight;
 
@@ -213,8 +215,7 @@ export class Renderer {
     this._ball(ctx, ballLike);
 
     ctx.restore();
-
-    this._replayHud(ctx, world, W, H);
+    // Las franjas, el cartel y el progreso de la repetición son DOM (hud.js).
   }
 
   // Objeto con la forma de Player que `_player` sabe dibujar. Los métodos que
@@ -275,54 +276,6 @@ export class Renderer {
     };
   }
 
-  // Cartel de la repetición: quién hizo el gol, barra de progreso y cómo
-  // saltearla. Las franjas negras arriba y abajo la separan del juego en vivo
-  // — es lenguaje de transmisión deportiva, se lee sin explicación.
-  _replayHud(ctx, world, W, H) {
-    const rp = world.replay;
-    const barH = Math.round(H * 0.075);
-
-    ctx.save();
-    ctx.fillStyle = 'rgba(4,3,12,0.92)';
-    ctx.fillRect(0, 0, W, barH);
-    ctx.fillRect(0, H - barH, W, barH);
-
-    // Etiqueta REPETICIÓN, con un punto rojo que late como el REC de una cámara
-    const cy = barH / 2;
-    const blink = 0.55 + 0.45 * Math.sin(this.t * 6);
-    ctx.beginPath();
-    ctx.arc(28, cy, 6, 0, 7);
-    ctx.fillStyle = `rgba(255,80,80,${blink})`;
-    ctx.fill();
-
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 15px Georgia, serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.fillText('REPETICIÓN', 44, cy);
-
-    if (rp.scorer) {
-      const mine = rp.scorer === 'p1';
-      ctx.font = 'bold 15px Georgia, serif';
-      ctx.fillStyle = mine ? CFG.colors.p1 : CFG.colors.p2;
-      ctx.fillText(mine ? 'Tu gol' : 'Gol del rival', 152, cy);
-    }
-
-    // Progreso del clip
-    const pw = Math.min(300, W * 0.28);
-    const px = W - pw - 150;
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    ctx.fillRect(px, cy - 2, pw, 4);
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.fillRect(px, cy - 2, pw * rp.progress, 4);
-
-    ctx.textAlign = 'right';
-    ctx.font = '13px Georgia, serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText('ESPACIO  saltear', W - 28, cy);
-
-    ctx.restore();
-  }
 
   // ---------- MAPA ----------
   // La imagen se dibuja DENTRO de la transformación de mundo, a tamaño
@@ -2428,376 +2381,49 @@ export class Renderer {
   }
 
   // ---------- HUD ----------
+  // Lo que queda del HUD en canvas: los efectos que conviven con la escena
+  // (fogonazo del gol, cartel del contragolpe, confetti, oscurecido del final,
+  // números de práctica y hints de táctil). Las cajas, textos grandes y
+  // botones son DOM ahora — hud.js los sincroniza y play.html los estila.
   _hud(ctx, world, W, H) {
     const m = world.match;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Modo práctica: sin marcador ni reloj, solo lo necesario para probar
     if (world.practice) {
       this._practiceHud(ctx, world, W, H);
       return;
     }
 
     // Fogonazo de la explosión de gol: tapa la pantalla un instante y se va.
-    // Va antes del texto para que "¡GOOOL!" salga del blanco, no debajo.
     if (m.flashT > 0) {
       ctx.fillStyle = `rgba(255,248,230,${clamp(m.flashT / CFG.goalBlast.flash, 0, 1) * 0.85})`;
       ctx.fillRect(0, 0, W, H);
     }
 
-    const cx = W / 2;
-    this._scoreboard(ctx, world, m, cx);
-    this._energyVial(ctx, world, W, H);
-
-    // Cuenta regresiva
-    if (m.state === 'countdown') {
-      const c = Math.ceil(m.countT);
-      ctx.font = 'bold 120px Georgia, serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.92)';
-      ctx.shadowColor = 'rgba(120,180,255,0.8)';
-      ctx.shadowBlur = 30;
-      ctx.fillText(m.countT > 0.35 ? (c > 3 ? '' : c) : '', cx, H * 0.4);
-      ctx.shadowBlur = 0;
-      // Torneo: presentar la ronda y el rival mientras baja la cuenta
-      if (world.torneo) {
-        const t = world.torneo;
-        ctx.font = 'bold 26px Georgia, serif';
-        ctx.fillStyle = '#ffd76a';
-        ctx.fillText(
-          t.cfg.final ? '🏆 LA FINAL' : `RONDA ${t.indice + 1} de ${t.total}`,
-          cx, H * 0.4 + 64);
-        ctx.font = '19px Georgia, serif';
-        ctx.fillStyle = 'rgba(232,236,255,0.85)';
-        ctx.fillText(`vs ${t.cfg.nombre}`, cx, H * 0.4 + 94);
-        ctx.font = 'italic 14px Georgia, serif';
-        ctx.fillStyle = 'rgba(210,200,240,0.6)';
-        ctx.fillText(t.cfg.frase, cx, H * 0.4 + 120);
-      }
-    } else if (m.state === 'play' && this._yaUntil > this.t && !m.golden) {
-      // "¡YA!" breve al iniciar.
-      //
-      // Antes esto se deducía del reloj (`timeLeft > duration - 0.8`), y en
-      // los modos donde el reloj NO corre —por goles y práctica— la condición
-      // nunca dejaba de cumplirse: el cartel quedaba clavado en pantalla todo
-      // el partido. Ahora es un temporizador propio, que arranca en la
-      // transición countdown→play y no depende de cómo termine el partido.
-      ctx.font = 'bold 110px Georgia, serif';
-      ctx.fillStyle = 'rgba(255,235,150,0.9)';
-      ctx.shadowColor = 'rgba(255,200,80,0.8)';
-      ctx.shadowBlur = 30;
-      ctx.fillText('¡YA!', cx, H * 0.4);
-      ctx.shadowBlur = 0;
-    }
-
     // Cartel del contragolpe encadenado (¡CRÍTICO! / ¡ZIGZAG!)
     this._chainToastDraw(ctx, W, H);
 
-    // GOL — el texto entra con el estallido, no antes
-    if (m.state === 'goal' && m.blasted) {
-      const scorerColor = m.goalScorer === 'p1' ? CFG.colors.p1 : CFG.colors.p2;
-      const age = clamp(m.blastWave * 1.6, 0, 1);
-      const scale = 1.45 - 0.45 * age;   // golpe de escala al aparecer
-      ctx.save();
-      ctx.translate(cx, H * 0.36);
-      ctx.scale(scale, scale);
-      // destello blanco detrás del texto, muy breve
-      ctx.globalAlpha = (1 - age) * 0.55;
-      ctx.fillStyle = '#fff6d8';
-      ctx.fillText('¡GOOOL!', 0, 0);
-      ctx.globalAlpha = 1;
-      ctx.font = 'bold 132px Georgia, serif';
-      ctx.lineWidth = 7;
-      ctx.strokeStyle = '#1a1533';
-      ctx.strokeText('¡GOOOL!', 0, 0);
-      ctx.fillStyle = scorerColor;
-      ctx.shadowColor = scorerColor;
-      ctx.shadowBlur = 46;
-      ctx.fillText('¡GOOOL!', 0, 0);
-      ctx.shadowBlur = 0;
-      ctx.restore();
-      ctx.font = '25px Georgia, serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      const who = m.goalScorer === 'p1' ? (world.botsMode ? 'del bot azul' : 'tuyo') : (world.botsMode ? 'del bot rojo' : 'del rival');
-      ctx.fillText(`Gol ${who}`, cx, H * 0.36 + 92);
-    }
-
-    // Final
+    // Final: el oscurecido y el confetti van en canvas (detrás del texto DOM)
     if (m.state === 'end') {
-      ctx.fillStyle = 'rgba(5,4,15,0.72)';
+      ctx.fillStyle = 'rgba(5,4,15,0.55)';
       ctx.fillRect(0, 0, W, H);
-      // Confetti de victoria: detrás de los textos, delante del oscurecido
       if (m.winner === 'p1' && !world.botsMode) this._confetti(ctx, world, W, H);
-      ctx.font = 'bold 92px Georgia, serif';
-      if (world.botsMode) {
-        ctx.fillStyle = m.winner === 'p1' ? CFG.colors.p1 : CFG.colors.p2;
-        ctx.fillText(m.winner === 'p1' ? 'GANA AZUL' : 'GANA ROJO', cx, H * 0.36);
-      } else if (m.winner === 'p1') {
-        ctx.fillStyle = '#ffd76a';
-        ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 40;
-        const tr = world.torneoResult;
-        ctx.fillText(tr?.campeon ? '¡CAMPEÓN!' : tr ? '¡RONDA SUPERADA!' : '¡VICTORIA!', cx, H * 0.36);
-        ctx.shadowBlur = 0;
-      } else {
-        ctx.fillStyle = '#b08cff';
-        ctx.fillText('DERROTA', cx, H * 0.36);
-      }
-      ctx.font = 'bold 44px Georgia, serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      ctx.fillText(`${m.score.p1}  —  ${m.score.p2}`, cx, H * 0.36 + 76);
-      const tr2 = world.torneoResult;
-      if (tr2) {
-        // El torneo guía al siguiente paso: un solo camino, sin botones.
-        ctx.font = '24px Georgia, serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.65)';
-        const pulse = 0.5 + 0.35 * Math.sin(this.t * 4);
-        ctx.globalAlpha = 0.5 + pulse * 0.5;
-        ctx.fillText(
-          tr2.campeon ? 'Tocá para reclamar tu trofeo 🏆'
-            : tr2.win ? `Tocá para la Ronda ${tr2.proxima + 1}`
-            : 'Tocá para reintentar la ronda',
-          cx, H * 0.36 + 140);
-        ctx.globalAlpha = 1;
-      } else {
-        // Partido suelto: dos salidas explícitas. Antes era "click en
-        // cualquier lado = otra partida", y volver al menú obligaba a pausar.
-        this._endMenu(ctx, world, W, H, cx, H * 0.36 + 112);
-      }
-
-      // ── Racha y récords ─────────────────────────────────────────────────
-      // La razón para "una más": la racha se ve SIEMPRE al terminar, y los
-      // récords nuevos se celebran. main.js la registró en la transición.
-      const st = world.lastStats;
-      if (st) {
-        ctx.font = '20px Georgia, serif';
-        ctx.fillStyle = 'rgba(210,200,240,0.85)';
-        const linea = st.streak > 0
-          ? `Racha: ${st.streak} 🔥   ·   Mejor racha: ${st.bestStreak}`
-          : `Victorias: ${st.wins} · Derrotas: ${st.losses}   ·   Mejor racha: ${st.bestStreak}`;
-        ctx.fillText(linea, cx, H * 0.36 + 190);
-
-        if (st.newBestStreak || st.newBiggestWin) {
-          ctx.font = 'bold 26px Georgia, serif';
-          ctx.fillStyle = '#ffd76a';
-          ctx.shadowColor = '#ffd76a';
-          ctx.shadowBlur = 14 + 8 * Math.sin(this.t * 6);
-          ctx.fillText(
-            st.newBestStreak ? '🏆 ¡Nueva mejor racha!' : '🏆 ¡Tu victoria más aplastante!',
-            cx, H * 0.36 + 232);
-          ctx.shadowBlur = 0;
-        }
-      }
     }
 
-    // Tutorial: hints de táctil + lecciones contextuales del coach
+    // Hints de táctil (los controles touch se dibujan en canvas)
     this._hints(ctx, world, W, H);
-    this._coach(ctx, world, W, H);
-
-    // Pausa
-    if (world.paused) this._pauseMenu(ctx, world, W, H, cx);
-
-    // Pantalla de controles: va encima de todo, incluso de la pausa, porque
-    // mientras está abierta es lo único con lo que se puede interactuar.
-    if (world.controlsScreen?.open) this._controlsScreen(ctx, world, W, H, cx);
   }
 
-  // Cómo se juega: se muestra una sola vez (la primera partida) y después
-  // queda a mano desde el menú de pausa. Da el mapa completo de controles de
-  // entrada; los hints progresivos enseñan después el timing de cada uno.
-  _controlsScreen(ctx, world, W, H, cx) {
-    const cs = world.controlsScreen;
 
-    ctx.fillStyle = 'rgba(4,3,12,0.88)';
-    ctx.fillRect(0, 0, W, H);
 
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 44px Georgia, serif';
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = CFG.colors.p1Glow;
-    ctx.shadowBlur = 20;
-    ctx.fillText('CÓMO SE JUEGA', cx, H * 0.20);
-    ctx.shadowBlur = 0;
-
-    const rows = [
-      ['MOUSE',   'Apuntás y movés la escoba'],
-      ['CLICK',   'Mantené y soltá: golpe (más carga = más fuerza)'],
-      ['ESPACIO', 'Dash — tenés 2 cargas'],
-      ['SHIFT',   'Propulsión, gasta energía'],
-      ['ESC',     'Pausa'],
-    ];
-
-    const KEY_W = 118, ROW_H = 44;
-    const listX = cx - 250;
-    let y = H * 0.20 + 52;
-
-    for (const [key, desc] of rows) {
-      // Tecla en una cápsula, para que se lea como tecla y no como texto
-      ctx.beginPath();
-      ctx.roundRect(listX, y, KEY_W, 32, 8);
-      ctx.fillStyle = 'rgba(255,255,255,0.07)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(120,200,255,0.45)';
-      ctx.lineWidth = 1.4;
-      ctx.stroke();
-
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 14px Georgia, serif';
-      ctx.fillStyle = CFG.colors.p1;
-      ctx.fillText(key, listX + KEY_W / 2, y + 21);
-
-      ctx.textAlign = 'left';
-      ctx.font = '16px Georgia, serif';
-      ctx.fillStyle = 'rgba(232,230,245,0.82)';
-      ctx.fillText(desc, listX + KEY_W + 18, y + 21);
-
-      y += ROW_H;
-    }
-
-    // Botón de cierre
-    const BW = 240, BH = 52;
-    const bx = cx - BW / 2, by = y + 18;
-    const hover = cs.hot === 'cerrar';
-    cs.rects = [{ id: 'cerrar', x: bx, y: by, w: BW, h: BH }];
-
-    ctx.save();
-    if (hover) { ctx.shadowColor = CFG.colors.p1; ctx.shadowBlur = 22; }
-    ctx.beginPath();
-    ctx.roundRect(bx, by, BW, BH, BH / 2);
-    ctx.fillStyle = hover ? CFG.colors.p1 : 'rgba(63,192,255,0.82)';
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 18px Georgia, serif';
-    ctx.fillStyle = '#08131c';
-    ctx.fillText('¡A JUGAR!', cx, by + BH / 2 + 6);
-    ctx.restore();
-
-    ctx.textAlign = 'center';
-    ctx.font = '13px Georgia, serif';
-    ctx.fillStyle = 'rgba(232,230,245,0.34)';
-    ctx.fillText('Click o ENTER para empezar', cx, by + BH + 24);
-  }
-
-  // Overlay de pausa: Continuar / Menú principal / Salir. Las zonas se
-  // recalculan cada frame en world.pauseMenu.rects — main.js las usa para el
-  // hit-test del mouse, así el hover y el click quedan sincronizados con lo
-  // que se dibujó, igual que hace menu.js con su propio canvas.
-  // Fin de partido (partido suelto): dos botones lado a lado. Van en fila y
-  // no en columna porque debajo se muestran la racha y los récords, y una
-  // columna los empujaría fuera de pantalla en monitores bajos.
-  _endMenu(ctx, world, W, H, cx, y) {
-    const em = world.endMenu;
-    if (!em) return;
-    const BW = 232, BH = 52, GAP = 18;
-    const items = [
-      { id: 'revancha', label: 'Jugar de nuevo', color: CFG.colors.p1 },
-      { id: 'menu',     label: 'Volver al menú', color: 'rgba(232,230,245,0.85)' },
-    ];
-    const totalW = BW * items.length + GAP * (items.length - 1);
-    em.rects = [];
-    items.forEach((it, i) => {
-      const x = cx - totalW / 2 + i * (BW + GAP);
-      const hover = em.hot === it.id;
-      em.rects.push({ id: it.id, x, y, w: BW, h: BH });
-
-      ctx.save();
-      if (hover) { ctx.shadowColor = it.color; ctx.shadowBlur = 22; }
-      ctx.beginPath();
-      ctx.roundRect(x, y, BW, BH, BH / 2);
-      ctx.fillStyle = hover ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)';
-      ctx.fill();
-      ctx.beginPath();
-      ctx.roundRect(x, y, BW, BH, BH / 2);
-      ctx.strokeStyle = hover ? it.color : 'rgba(255,255,255,0.16)';
-      ctx.lineWidth = 1.6;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 19px Georgia, serif';
-      ctx.fillStyle = hover ? '#fff' : it.color;
-      ctx.fillText(it.label, x + BW / 2, y + BH / 2 + 7);
-      ctx.restore();
-    });
-  }
-
-  _pauseMenu(ctx, world, W, H, cx) {
-    const pm = world.pauseMenu;
-    ctx.fillStyle = 'rgba(5,4,15,0.72)';
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 56px Georgia, serif';
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = CFG.colors.p1Glow;
-    ctx.shadowBlur = 22;
-    ctx.fillText('PAUSA', cx, H * 0.28);
-    ctx.shadowBlur = 0;
-
-    // 4 botones: se achican un poco respecto de los 3 originales para que la
-    // columna entre completa también en pantallas bajas (~640 px de alto).
-    const BW = 280, BH = 50, GAP = 12;
-    const items = [
-      { id: 'continuar', label: 'Continuar',      color: CFG.colors.p1 },
-      { id: 'controles', label: 'Controles',      color: 'rgba(232,230,245,0.85)' },
-      { id: 'menu',      label: 'Menú principal',  color: 'rgba(232,230,245,0.85)' },
-      { id: 'salir',     label: 'Salir',           color: 'rgba(255,140,140,0.9)' },
-    ];
-    const y0 = H * 0.28 + 44;
-
-    pm.rects = [];
-    items.forEach((it, i) => {
-      const x = cx - BW / 2, y = y0 + i * (BH + GAP);
-      const hover = pm.hot === it.id;
-      pm.rects.push({ id: it.id, x, y, w: BW, h: BH });
-
-      ctx.save();
-      if (hover) { ctx.shadowColor = it.color; ctx.shadowBlur = 22; }
-      ctx.beginPath();
-      ctx.roundRect(x, y, BW, BH, BH / 2);
-      ctx.fillStyle = hover ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)';
-      ctx.fill();
-      ctx.beginPath();
-      ctx.roundRect(x, y, BW, BH, BH / 2);
-      ctx.strokeStyle = hover ? it.color : 'rgba(255,255,255,0.16)';
-      ctx.lineWidth = 1.6;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      ctx.font = 'bold 18px Georgia, serif';
-      ctx.fillStyle = hover ? '#fff' : it.color;
-      ctx.fillText(it.label, cx, y + BH / 2 + 6);
-      ctx.restore();
-    });
-
-    // Aviso si "Salir" no pudo cerrar la pestaña (el navegador lo bloquea si
-    // no fue abierta por script) — se muestra un rato y se apaga solo.
-    if (pm.closeBlockedT > 0) {
-      ctx.font = '15px Georgia, serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.globalAlpha = Math.min(1, pm.closeBlockedT);
-      ctx.fillText('Tu navegador no deja cerrar la pestaña desde acá — cerrala vos con Ctrl+W',
-        cx, y0 + items.length * (BH + GAP) + 8);
-      ctx.globalAlpha = 1;
-    }
-
-    ctx.font = '14px Georgia, serif';
-    ctx.fillStyle = 'rgba(232,230,245,0.34)';
-    ctx.fillText('ESC continúa · R reinicia el partido', cx, H - 26);
-  }
 
   durationMinusYa(m) { return m.duration - 0.8; }
 
+  // Práctica: la pastilla del título es DOM (hud.js); acá queda solo el
+  // número flotante del último golpe, que convive con la escena.
   _practiceHud(ctx, world, W, H) {
     const cx = W / 2;
-    ctx.fillStyle = 'rgba(10,8,25,0.62)';
-    this._rrect(ctx, cx - 250, 12, 500, 40, 10);
-    ctx.fill();
-    ctx.font = '16px Georgia, serif';
-    ctx.fillStyle = '#ffd76a';
-    ctx.fillText(world.titleText || 'PRÁCTICA — sin rivales ni arcos', cx, 32);
-
-    // Último golpe: la lectura que importa para tunear el latigazo
     const s = world.stats;
     if (s && s.lastHit > 0) {
       const age = (performance.now() - s.lastHitAt) / 1000;
@@ -2812,12 +2438,6 @@ export class Renderer {
         ctx.globalAlpha = 1;
       }
     }
-
-    ctx.font = '15px Georgia, serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText(world.hintText
-      || 'CLICK y soltá para golpear  ·  ESPACIO dash  ·  SHIFT propulsión  ·  R reubica la pelota',
-      cx, H - 26);
   }
 
   // Hints de TÁCTIL. En escritorio los reemplazó el coach (lecciones
@@ -2864,420 +2484,10 @@ export class Renderer {
     ctx.fillText(text, W / 2, H - 46);
   }
 
-  // ---------- COACH ----------
-  // Dibuja la lección activa del coach: una pastilla con la tecla como keycap
-  // y una línea fina hasta su ancla (el mago, la pelota, los rayos del dash,
-  // la barra de energía). El coach decide QUÉ y CUÁNDO (coach.js); acá solo
-  // se resuelve DÓNDE, porque el layout del HUD vive en este archivo.
-  _coachAnchor(anchor, world, W, H) {
-    const cam = world.camera;
-    const toScreen = (p) => ({
-      x: W / 2 + (p.x - cam.x) * cam.zoom,
-      y: H / 2 + (p.y - cam.y) * cam.zoom,
-    });
-    switch (anchor) {
-      case 'ball':   return toScreen(world.ball.pos);
-      case 'player': return toScreen(world.playerA.broom.pos);
-      // Coordenadas del HUD inferior-izquierdo (mismas constantes que _hud):
-      // rayos del dash arriba de la barra, barra de energía abajo.
-      case 'dashHud':   return { x: 20 + 35, y: H - 22 - 30 - 26 };
-      case 'energyHud': return { x: 20 + 95, y: H - 22 - 30 + 11 };
-      default: return { x: W / 2, y: H / 2 };
-    }
-  }
 
-  _coach(ctx, world, W, H) {
-    const coach = world.coach;
-    if (!coach || world.botsMode || world.touch?.active) return;
-    if (world.paused || world.match?.state !== 'play') return;
 
-    // ── ✓ de completado: destello verde sobre el ancla de la lección ──
-    if (coach.flash) {
-      const a = this._coachAnchor(coach.flash.anchor, world, W, H);
-      const k = coach.flash.t / 0.9;              // 1 → 0
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, k * 1.6);
-      ctx.font = 'bold 26px Georgia, serif';
-      ctx.textAlign = 'center';
-      ctx.shadowColor = '#6ee7a0';
-      ctx.shadowBlur = 14;
-      ctx.fillStyle = '#8effb8';
-      // sube suavecito mientras se apaga
-      ctx.fillText('✓ ¡Bien!', a.x, a.y - 46 - (1 - k) * 18);
-      ctx.restore();
-    }
 
-    const l = coach.current;
-    if (!l) return;
 
-    const a = this._coachAnchor(l.anchor, world, W, H);
-    // Entrada y salida con fade (rápido al aparecer, el pulso hace el resto)
-    const fadeIn = Math.min(coach.age / 0.35, 1);
-    const pulse = 0.88 + 0.12 * Math.sin(this.t * 3.2);
-
-    // La pastilla flota ARRIBA del ancla; si el ancla está muy arriba en la
-    // pantalla (pelota por el cielo), se pone abajo para no salirse.
-    const above = a.y > 130;
-    const px = Math.max(120, Math.min(W - 120, a.x));
-    const py = above ? a.y - 74 : a.y + 74;
-
-    ctx.save();
-    ctx.globalAlpha = fadeIn * pulse;
-
-    // Línea fina de la pastilla al ancla
-    ctx.strokeStyle = 'rgba(255,240,200,0.45)';
-    ctx.lineWidth = 1.4;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(px, above ? py + 18 : py - 18);
-    ctx.lineTo(a.x, above ? a.y - 28 : a.y + 28);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Medidas de la pastilla: keycap + texto
-    ctx.font = 'bold 13px Georgia, serif';
-    const keyW = ctx.measureText(l.key).width + 18;
-    ctx.font = '14px Georgia, serif';
-    const textW = ctx.measureText(l.text).width;
-    const padX = 12, gap = 9, h = 36;
-    const w = padX + keyW + gap + textW + padX;
-    const x = px - w / 2, y = py - h / 2;
-
-    // Fondo
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 10);
-    ctx.fillStyle = 'rgba(8,6,22,0.88)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(120,200,255,0.5)';
-    ctx.lineWidth = 1.4;
-    ctx.stroke();
-
-    // Keycap (mismo lenguaje visual que la pantalla de controles)
-    ctx.beginPath();
-    ctx.roundRect(x + padX, y + 7, keyW, h - 14, 6);
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(120,200,255,0.55)';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-    ctx.font = 'bold 13px Georgia, serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = CFG.colors.p1;
-    ctx.fillText(l.key, x + padX + keyW / 2, y + h / 2 + 4.5);
-
-    // Texto
-    ctx.font = '14px Georgia, serif';
-    ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(240,236,255,0.94)';
-    ctx.fillText(l.text, x + padX + keyW + gap, y + h / 2 + 5);
-
-    ctx.restore();
-  }
-
-  // ---------- HUD MEDIEVAL ----------
-  // Estandarte de piedra con dos escudos de equipo y una runa de tiempo.
-  // Compacto a propósito: los protagonistas visuales son la pelota, los
-  // jugadores y las físicas, no la interfaz.
-  _scoreboard(ctx, world, m, cx) {
-    const punch = m.scorePunch || 0;
-    const golden = m.golden;
-    const w = 300, h = 62, y = 10;
-    const x = cx - w / 2;
-
-    ctx.save();
-    // Placa de piedra con esquinas achaflanadas (nada de rectángulos modernos)
-    const cut = 14;
-    ctx.beginPath();
-    ctx.moveTo(x + cut, y);
-    ctx.lineTo(x + w - cut, y);
-    ctx.lineTo(x + w, y + cut);
-    ctx.lineTo(x + w, y + h - cut);
-    ctx.lineTo(x + w - cut, y + h);
-    ctx.lineTo(x + cut, y + h);
-    ctx.lineTo(x, y + h - cut);
-    ctx.lineTo(x, y + cut);
-    ctx.closePath();
-    const sg = ctx.createLinearGradient(0, y, 0, y + h);
-    sg.addColorStop(0, 'rgba(70,64,92,0.94)');
-    sg.addColorStop(1, 'rgba(34,30,52,0.94)');
-    ctx.fillStyle = sg;
-    ctx.fill();
-    ctx.strokeStyle = golden ? '#ffd76a' : 'rgba(150,140,180,0.65)';
-    ctx.lineWidth = golden ? 2.5 : 1.6;
-    if (golden) { ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 12 + 8 * Math.sin(this.t * 4); }
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Escudos de equipo: color plano, imposible confundirlos
-    const crest = (px, color, score, mine) => {
-      ctx.beginPath();
-      ctx.moveTo(px - 26, y + 12);
-      ctx.lineTo(px + 26, y + 12);
-      ctx.lineTo(px + 26, y + 34);
-      ctx.quadraticCurveTo(px, y + 54, px - 26, y + 34);
-      ctx.closePath();
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.9;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      const s = 1 + (mine ? punch * 0.5 : 0);
-      ctx.save();
-      ctx.translate(px, y + 28);
-      ctx.scale(s, s);
-      ctx.font = 'bold 27px Georgia, serif';
-      ctx.fillStyle = '#12101f';
-      ctx.fillText(score, 0, 0);
-      ctx.restore();
-    };
-    crest(cx - 96, CFG.colors.p1, m.score.p1, m.goalScorer === 'p1');
-    crest(cx + 96, CFG.colors.p2, m.score.p2, m.goalScorer === 'p2');
-
-    // Runa de tiempo en el centro
-    if (golden) {
-      ctx.font = 'bold 15px Georgia, serif';
-      ctx.fillStyle = '#ffd76a';
-      ctx.fillText('GOL DE ORO', cx, y + 26);
-      ctx.font = '11px Georgia, serif';
-      ctx.fillStyle = 'rgba(255,215,106,0.7)';
-      ctx.fillText('el próximo gana', cx, y + 43);
-    } else if (m.goalTarget > 0) {
-      // Por goles: la meta reemplaza al reloj — es lo único que importa.
-      ctx.font = 'bold 22px Georgia, serif';
-      ctx.fillStyle = '#ffd76a';
-      ctx.fillText(`META ${m.goalTarget}`, cx, y + 28);
-      ctx.font = '10px Georgia, serif';
-      ctx.fillStyle = 'rgba(210,200,240,0.45)';
-      ctx.fillText('el primero gana', cx, y + 46);
-    } else {
-      const t = Math.max(m.timeLeft, 0);
-      const mm = Math.floor(t / 60), ss = Math.floor(t % 60);
-      const low = t < 20;
-      ctx.font = 'bold 26px Georgia, serif';
-      ctx.fillStyle = low ? '#ff8f6a' : '#e8e2ff';
-      if (low) { ctx.shadowColor = '#ff8f6a'; ctx.shadowBlur = 10; }
-      ctx.fillText(`${mm}:${ss.toString().padStart(2, '0')}`, cx, y + 30);
-      ctx.shadowBlur = 0;
-      ctx.font = '10px Georgia, serif';
-      ctx.fillStyle = 'rgba(210,200,240,0.45)';
-      ctx.fillText(world.botsMode ? 'AZUL · ROJO' : 'TÚ · RIVAL', cx, y + 48);
-    }
-    ctx.restore();
-  }
-
-  // Frasco de energía mágica: se llena con orbes, se vacía con el boost.
-  // Rayo ⚡ dibujado como path manual.
-  // cx,cy = centro; sz = tamaño; lit = cargado; frac = progreso recarga (0..1)
-  _drawBolt(ctx, cx, cy, sz, lit, frac) {
-    const pts = [
-      [ 0.18, -0.50],
-      [-0.04, -0.02],
-      [ 0.22, -0.02],
-      [-0.18,  0.50],
-      [ 0.04,  0.02],
-      [-0.22,  0.02],
-    ];
-    ctx.save();
-    ctx.translate(cx, cy);
-
-    if (!lit && frac > 0) {
-      ctx.save();
-      ctx.beginPath();
-      const fillY = sz * 0.5 - sz * frac;
-      ctx.rect(-sz, fillY, sz * 2, sz - fillY);
-      ctx.clip();
-    }
-
-    if (lit) { ctx.shadowColor = '#ffe040'; ctx.shadowBlur = sz * 0.7; }
-
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0] * sz, pts[0][1] * sz);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0] * sz, pts[i][1] * sz);
-    ctx.closePath();
-
-    if (lit) {
-      const g = ctx.createLinearGradient(0, -sz * 0.5, 0, sz * 0.5);
-      g.addColorStop(0, '#fff066');
-      g.addColorStop(1, '#80e000');
-      ctx.fillStyle = g;
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-      ctx.lineWidth = sz * 0.07;
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = frac > 0 ? 'rgba(120,200,60,0.45)' : 'rgba(255,255,255,0.08)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-      ctx.lineWidth = sz * 0.06;
-      ctx.stroke();
-    }
-
-    if (!lit && frac > 0) ctx.restore();
-    ctx.shadowBlur = 0;
-    ctx.restore();
-  }
-
-  _energyVial(ctx, world, W, H) {
-    const pl = world.playerA;
-    if (!pl) return;
-    // En ?bots el humano no controla nada: dibujar su barra, sus rayos y el
-    // anillo de carga sugeriría que se puede jugar, y no responden a nada.
-    if (world.botsMode) return;
-    const E = CFG.boost;
-    const energy    = clamp(pl.energy / E.max, 0, 1);
-    const boosting  = pl.broom.boostPower > 0.05;
-    const unlimited = pl.unlimitedT > 0;
-    const now       = performance.now();
-
-    // ── Layout ────────────────────────────────────────────────────────────
-    //   ⚡ ⚡   ESPACIO          ← dash: cargas, arriba
-    //   ▓▓▓▓▓░░  ENERGÍA        ← boost: barra, abajo
-    //
-    // Antes era [⚡] [barra] [⚡]: los rayos abrazaban la barra y todo se leía
-    // como un único medidor. Son dos recursos distintos, con teclas distintas,
-    // así que ahora van separados y cada uno dice cuál es la suya.
-    const BOLT_SZ  = 30;
-    const BOLT_GAP = 8;
-    const BAR_W    = 190, BAR_H = 22;
-    const RADIUS   = BAR_H / 2;
-    const LEFT     = 20;
-    const BAR_Y    = H - BAR_H - 30;
-    const BAR_X    = LEFT;
-    // Fila de rayos, encima de la barra y alineada a su izquierda
-    const boltY    = BAR_Y - 26;
-
-    // El tuning se lee del estado, no se repite acá: duplicarlo hacía que el
-    // HUD mintiera en silencio si alguien ajustaba el dash en main.js.
-    const dashState = world.dashState;
-    const DASH_RECHARGE = dashState?.recharge ?? 4.0;
-    const DASH_MAX = dashState?.maxCharges ?? 2;
-
-    ctx.save();
-
-    // ── Barra ─────────────────────────────────────────────────────────────
-    // Fondo
-    ctx.beginPath(); ctx.roundRect(BAR_X, BAR_Y, BAR_W, BAR_H, RADIUS);
-    ctx.fillStyle = 'rgba(0,0,20,0.65)'; ctx.fill();
-
-    // Borde: azul neón normal, dorado si energía ilimitada
-    const borderColor = unlimited ? '#ffd76a' : '#00bfff';
-    ctx.beginPath(); ctx.roundRect(BAR_X, BAR_Y, BAR_W, BAR_H, RADIUS);
-    ctx.strokeStyle = borderColor;
-    ctx.lineWidth   = 2.2;
-    ctx.shadowColor = borderColor;
-    ctx.shadowBlur  = boosting ? 18 : (unlimited ? 14 : 10);
-    ctx.stroke();
-    ctx.shadowBlur  = 0;
-
-    // Relleno
-    if (energy > 0) {
-      ctx.save();
-      ctx.beginPath(); ctx.roundRect(BAR_X, BAR_Y, BAR_W, BAR_H, RADIUS); ctx.clip();
-
-      const fillW = BAR_W * energy;
-      const pulse = boosting        ? 0.80 + 0.20 * Math.sin(now / 80)
-                  : unlimited       ? 0.75 + 0.25 * Math.sin(now / 60)
-                  : energy > 0.95   ? 0.88 + 0.12 * Math.sin(now / 150)
-                  : 1;
-
-      const g = ctx.createLinearGradient(BAR_X, BAR_Y, BAR_X, BAR_Y + BAR_H);
-      if (unlimited) {
-        g.addColorStop(0, `rgba(255,248,180,${pulse})`);
-        g.addColorStop(0.5, `rgba(240,180,20,${pulse})`);
-        g.addColorStop(1, `rgba(180,100,0,${pulse})`);
-      } else {
-        g.addColorStop(0,    `rgba(170,255,70,${pulse})`);
-        g.addColorStop(0.45, `rgba(80,220,10,${pulse})`);
-        g.addColorStop(1,    `rgba(35,150,0,${pulse})`);
-      }
-      ctx.fillStyle = g;
-      ctx.fillRect(BAR_X, BAR_Y, fillW, BAR_H);
-
-      // Brillo especular
-      const shine = ctx.createLinearGradient(BAR_X, BAR_Y, BAR_X, BAR_Y + BAR_H * 0.5);
-      shine.addColorStop(0, 'rgba(255,255,255,0.30)');
-      shine.addColorStop(1, 'rgba(255,255,255,0.00)');
-      ctx.fillStyle = shine;
-      ctx.fillRect(BAR_X, BAR_Y, fillW, BAR_H);
-
-      // Glow en el frente del relleno
-      if (energy < 0.99) {
-        ctx.shadowColor = unlimited ? '#ffd76a' : '#60ff10';
-        ctx.shadowBlur  = 14;
-        ctx.fillStyle   = unlimited ? 'rgba(255,210,80,0.65)' : 'rgba(130,255,50,0.65)';
-        ctx.fillRect(BAR_X + fillW - 2, BAR_Y, 3, BAR_H);
-        ctx.shadowBlur  = 0;
-      }
-      ctx.restore();
-    }
-
-    // Etiqueta ilimitada (∞ + tiempo)
-    if (unlimited) {
-      ctx.font = 'bold 13px Georgia, serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#ffd76a';
-      ctx.fillText(`∞  ${pl.unlimitedT.toFixed(1)}s`, BAR_X + BAR_W / 2, BAR_Y - 7);
-    }
-
-    // ── Rayos ⚡ a los lados ──────────────────────────────────────────────
-    // Durante el bloqueo del arranque los dos van apagados aunque las cargas
-    // estén llenas: si se vieran encendidos, apretar Space y que no pase nada
-    // se leería como un bug del juego y no como una regla.
-    const m2 = world.match;
-    const locked = m2?.dashAllowed ? !m2.dashAllowed() && m2.state !== 'end' : false;
-    if (dashState) {
-      // Rayos agrupados a la izquierda, en fila
-      for (let i = 0; i < DASH_MAX; i++) {
-        const bx = LEFT + BOLT_SZ / 2 + i * (BOLT_SZ * 0.62 + BOLT_GAP);
-        const lit = !locked && i < dashState.charges;
-        let frac = 0;
-        if (!lit && !locked && i === dashState.charges) frac = dashState.rechargeT / DASH_RECHARGE;
-        this._drawBolt(ctx, bx, boltY, BOLT_SZ, lit, frac);
-      }
-
-      // Qué tecla usa el dash, al lado de los rayos. Es la mitad del punto de
-      // separarlos: que se vea de un vistazo que ese recurso es de ESPACIO.
-      // `textX` es coordenada ABSOLUTA: el centro del último rayo, más medio
-      // ancho para pasar su borde, más un margen de aire.
-      const lastCx = LEFT + BOLT_SZ / 2 + (DASH_MAX - 1) * (BOLT_SZ * 0.62 + BOLT_GAP);
-      const textX  = lastCx + BOLT_SZ * 0.45 + 12;
-      ctx.font = 'bold 11px Georgia, serif';
-      ctx.textAlign = 'left';
-      // Sombra oscura detrás: el HUD cae sobre el muro claro del castillo (y a
-      // veces sobre una antorcha), donde un gris tenue sin contorno no se lee.
-      ctx.shadowColor = 'rgba(0,0,0,0.9)';
-      ctx.shadowBlur  = 4;
-      ctx.fillStyle = locked ? 'rgba(190,215,255,0.95)' : 'rgba(255,255,255,0.8)';
-
-      if (locked && m2.state === 'play' && m2.dashLockT > 0) {
-        // Durante el bloqueo del saque el texto explica por qué no anda
-        ctx.fillText(`ESPACIO · listo en ${Math.ceil(m2.dashLockT)}s`, textX, boltY + 4);
-      } else if (dashState.charges < DASH_MAX) {
-        // Recargando: cuánto falta para la próxima carga
-        const remaining = DASH_RECHARGE - dashState.rechargeT;
-        ctx.fillText(`ESPACIO · +1 en ${remaining.toFixed(1)}s`, textX, boltY + 4);
-      } else {
-        ctx.fillText('ESPACIO', textX, boltY + 4);
-      }
-      ctx.shadowBlur = 0;
-    }
-
-    // Etiqueta de la barra: qué recurso es y con qué tecla se gasta. Sin esto
-    // la barra verde es un medidor anónimo que nadie sabe para qué sirve.
-    if (!unlimited) {
-      ctx.font = 'bold 11px Georgia, serif';
-      ctx.textAlign = 'left';
-      ctx.shadowColor = 'rgba(0,0,0,0.9)';
-      ctx.shadowBlur  = 4;
-      ctx.fillStyle = boosting ? 'rgba(170,255,110,1)' : 'rgba(255,255,255,0.8)';
-      ctx.fillText('ENERGÍA · SHIFT', BAR_X + 2, BAR_Y + BAR_H + 14);
-      ctx.shadowBlur = 0;
-    }
-
-    ctx.restore();
-  }
 
   // Anillo de carga del golpe (se dibuja en coordenadas de mundo sobre la escoba)
   _spinChargeRing(ctx, world) {

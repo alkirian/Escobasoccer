@@ -9,7 +9,8 @@ import { ROSTER, CHARACTERS } from './characters.js';
 import { unlockedPalettes, selectedPalettes, selectPalette } from './challenges.js';
 import { RONDAS, loadTorneo, resetTorneo } from './torneo.js';
 import { statsHTML } from './statsui.js';
-import { statsOf } from './stats_chars.js';
+import { statsOf, pasivaOf } from './stats_chars.js';
+import { isUnlocked, coins, tryUnlock, COSTS } from './roster.js';
 
 const CHAR_KEY = 'escoba.character.v1';
 const PREP_KEY = 'escoba.prep.v1';
@@ -30,6 +31,11 @@ function savePrep() {
 let heroIdx = Math.max(0, ROSTER.findIndex((h) => {
   try { return h.id === localStorage.getItem(CHAR_KEY); } catch { return false; }
 }));
+// Un guardado viejo puede apuntar a un personaje bloqueado: caer al primero
+// desbloqueado en vez de dejar seleccionado algo que no se puede jugar.
+if (!isUnlocked(ROSTER[heroIdx]?.id)) {
+  heroIdx = Math.max(0, ROSTER.findIndex((h) => isUnlocked(h.id)));
+}
 
 // ── Pestañas de modo ───────────────────────────────────────────────────────
 const MODES = [
@@ -152,13 +158,38 @@ function heroNow() { return ROSTER[heroIdx]; }
 
 function applyHero() {
   const h = heroNow();
+  const libre = isUnlocked(h.id);
   pl.characterId = h.id;
   pl.paletteId = selectedPalettes()[h.id] ?? null;
-  try { localStorage.setItem(CHAR_KEY, h.id); } catch { /* nada */ }
-  $('heroNom').innerHTML = `${h.nombre} <small>${h.titulo}</small>`;
+  // Solo se persiste la elección si el personaje está desbloqueado: mirar
+  // uno bloqueado no debe romper el guardado.
+  if (libre) { try { localStorage.setItem(CHAR_KEY, h.id); } catch { /* nada */ } }
+  $('heroNom').innerHTML = libre
+    ? `${h.nombre} <small>${h.titulo}</small>`
+    : `🔒 ${h.nombre} <small>${h.titulo}</small>`;
   $('heroRol').textContent = h.rol;
   $('heroStats').innerHTML = statsHTML(h.id);
-  $('heroArq').textContent = statsOf(h.id).arq;
+  const pas = pasivaOf(h.id);
+  $('heroArq').textContent = statsOf(h.id).arq + (pas ? `  ·  ${pas.icono} ${pas.nombre}: ${pas.desc}` : '');
+
+  // ── Candado / desbloqueo ─────────────────────────────────────────────────
+  const lockRow = $('lockRow');
+  if (libre) {
+    lockRow.classList.add('hide');
+    $('btnGo').disabled = false;
+    $('btnGo').textContent = '▶ ¡A VOLAR!';
+  } else {
+    const cost = COSTS[h.id] ?? 0;
+    const c = coins();
+    lockRow.classList.remove('hide');
+    $('lockTxt').textContent = `Se desbloquea con monedas — ${cost} 🪙 (tenés ${c})`;
+    const btn = $('btnUnlock');
+    btn.disabled = c < cost;
+    btn.textContent = c < cost ? `🔒 Te faltan ${cost - c} 🪙` : `Desbloquear por ${cost} 🪙`;
+    btn.onclick = () => { if (tryUnlock(h.id)) applyHero(); };
+    $('btnGo').disabled = true;
+    $('btnGo').textContent = '🔒 Bloqueado';
+  }
   // chips de paleta (solo desbloqueadas)
   const row = $('palRow');
   row.innerHTML = '';
@@ -230,6 +261,7 @@ requestAnimationFrame(frame);
 
 // ── ¡A VOLAR! ──────────────────────────────────────────────────────────────
 $('btnGo').onclick = () => {
+  if (!isUnlocked(heroNow().id)) return;   // candado: Enter tampoco pasa
   savePrep();
   const q = new URLSearchParams();
   // sonido/orbes: preferencias que administra la página de Opciones

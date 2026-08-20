@@ -60,24 +60,80 @@
     .logo span.v { color: var(--accent); }
     .tag { color: var(--muted); margin-bottom: 26px; text-align: center; }
 
-    nav { display: flex; flex-direction: column; gap: 12px; width: min(360px, 88vw); }
+    nav { display: flex; flex-direction: column; gap: 13px; width: min(370px, 88vw); }
+
+    /* Botón del menú: gradiente en capas + borde degradado + barrido de luz.
+       El borde degradado usa el truco de doble fondo (padding-box/border-box):
+       el borde es "transparente" pero por detrás corre su propio gradiente. */
     nav a {
+      position: relative; overflow: hidden;
       display: flex; align-items: center; gap: 14px;
-      background: var(--panel); border: 1px solid var(--line);
-      border-radius: 14px; padding: 15px 22px;
+      border: 1px solid transparent; border-radius: 16px;
+      background:
+        linear-gradient(165deg, #1c2244 0%, #141830 55%, #10142a 100%) padding-box,
+        linear-gradient(160deg, rgba(120,160,255,.45), rgba(60,80,140,.15) 40%, rgba(63,192,255,.3)) border-box;
+      padding: 15px 22px;
       color: var(--text); text-decoration: none;
-      font: 600 18px system-ui; transition: .15s;
+      font: 600 18px system-ui;
+      box-shadow: 0 4px 18px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+      transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
     }
-    nav a .ico { font-size: 22px; width: 30px; text-align: center; }
+    /* Barrido de luz que cruza el botón al pasar el mouse */
+    nav a::after {
+      content: ''; position: absolute; top: 0; bottom: 0;
+      left: -70%; width: 45%;
+      background: linear-gradient(100deg, transparent, rgba(190,220,255,.16), transparent);
+      transform: skewX(-18deg);
+      transition: left .45s ease;
+      pointer-events: none;
+    }
+    nav a:hover::after { left: 125%; }
+    nav a:hover {
+      transform: translateY(-2px) scale(1.015);
+      background:
+        linear-gradient(165deg, #232a56 0%, #1a2040 55%, #151a34 100%) padding-box,
+        linear-gradient(160deg, rgba(63,192,255,.85), rgba(90,120,200,.35) 45%, rgba(63,192,255,.6)) border-box;
+      box-shadow: 0 10px 30px rgba(0,0,0,.45), 0 0 24px rgba(63,192,255,.22),
+                  inset 0 1px 0 rgba(255,255,255,.1);
+    }
+    nav a:active { transform: translateY(0) scale(.99); transition-duration: .06s; }
+    nav a .ico { font-size: 22px; width: 30px; text-align: center;
+      filter: drop-shadow(0 2px 6px rgba(63,192,255,.35)); }
     nav a small { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 12px; }
-    nav a:hover { border-color: #3d4780; transform: translateX(4px); background: var(--panel2); }
+
+    /* JUGAR: oro fundido. Gradiente cálido, doble glow (cerca + lejos) que
+       respira, y el mismo barrido de luz pero más intenso. */
     nav a.primary {
-      background: var(--accent); border-color: var(--accent); color: #1a1400;
+      background:
+        linear-gradient(170deg, #ffe98a 0%, #ffd54a 38%, #ffb52e 78%, #f09a1a 100%) padding-box,
+        linear-gradient(160deg, #fff3b8, #ffc93a 50%, #ff9d2e) border-box;
+      color: #201700;
       font-size: 21px; padding: 18px 22px;
-      box-shadow: 0 0 28px rgba(255,213,74,.25);
+      text-shadow: 0 1px 0 rgba(255,255,255,.35);
+      box-shadow: 0 6px 22px rgba(255,170,40,.35), 0 0 42px rgba(255,213,74,.28),
+                  inset 0 1px 0 rgba(255,255,255,.55), inset 0 -8px 16px rgba(200,110,0,.28);
+      animation: goldbreathe 2.6s ease-in-out infinite;
     }
-    nav a.primary small { color: #6a5410; }
-    nav a.primary:hover { filter: brightness(1.07); transform: translateX(0) scale(1.02); }
+    @keyframes goldbreathe {
+      0%, 100% { box-shadow: 0 6px 22px rgba(255,170,40,.35), 0 0 42px rgba(255,213,74,.28),
+                             inset 0 1px 0 rgba(255,255,255,.55), inset 0 -8px 16px rgba(200,110,0,.28); }
+      50%      { box-shadow: 0 6px 26px rgba(255,170,40,.5), 0 0 60px rgba(255,213,74,.42),
+                             inset 0 1px 0 rgba(255,255,255,.55), inset 0 -8px 16px rgba(200,110,0,.28); }
+    }
+    nav a.primary::after {
+      background: linear-gradient(100deg, transparent, rgba(255,255,255,.5), transparent);
+    }
+    nav a.primary small { color: #7a5c08; }
+    nav a.primary .ico { filter: drop-shadow(0 1px 3px rgba(160,90,0,.5)); }
+    nav a.primary:hover {
+      transform: translateY(-2px) scale(1.03);
+      background:
+        linear-gradient(170deg, #fff0a0 0%, #ffdd60 38%, #ffbe3c 78%, #f5a424 100%) padding-box,
+        linear-gradient(160deg, #fff8d0, #ffd44e 50%, #ffab3a) border-box;
+      box-shadow: 0 10px 30px rgba(255,170,40,.55), 0 0 70px rgba(255,213,74,.5),
+                  inset 0 1px 0 rgba(255,255,255,.65), inset 0 -8px 16px rgba(200,110,0,.24);
+      animation: none;
+    }
 
     footer {
       position: fixed; bottom: 14px; left: 0; right: 0;

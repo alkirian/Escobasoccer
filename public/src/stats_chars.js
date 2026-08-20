@@ -49,6 +49,38 @@ export const STATS = {
 
 const NEUTRAL = { vel: 3, man: 3, fue: 3, pes: 3, mag: 3, arq: 'Estándar' };
 
+// ── Pasivas ────────────────────────────────────────────────────────────────
+// Una por personaje: un distintivo SIEMPRE activo, sin botón. La regla de
+// diseño: cada pasiva refuerza el arquetipo que los stats ya cuentan — no
+// agrega un poder nuevo, exagera el que ya tenía.
+//
+// El efecto vive en el motor (player/collisions/match/main leen el
+// characterId); acá está la ficha que muestran las galerías.
+export const PASIVAS = {
+  mago: {
+    nombre: 'Segundo aliento', icono: '🌬️',
+    desc: 'Regenera energía lentamente, todo el tiempo. Nunca llega vacío.',
+  },
+  mordrak: {
+    nombre: 'Robo de esencia', icono: '🧪',
+    desc: 'Cada golpe a la pelota le roba un sorbo de energía.',
+  },
+  zefir: {
+    nombre: 'Tercer impulso', icono: '⚡',
+    desc: 'Lleva 3 cargas de dash — los demás llevan 2.',
+  },
+  valka: {
+    nombre: 'Inquebrantable', icono: '🛡️',
+    desc: 'La explosión del gol casi no la mueve: planta el escudo y aguanta.',
+  },
+  petra: {
+    nombre: 'Muralla', icono: '🪨',
+    desc: 'Quien la embiste rebota con el doble de fuerza.',
+  },
+};
+
+export function pasivaOf(id) { return PASIVAS[id] ?? null; }
+
 export function statsOf(id) {
   return STATS[id] ?? NEUTRAL;
 }

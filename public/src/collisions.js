@@ -152,6 +152,19 @@ export function interactPlayerBall(player, ball, dt, fx) {
     ball.lastHitter = player;
     fx?.onChainHit?.(ball.pos.x, ball.pos.y, nivel, player);
   }
+
+  // PASIVA de Mordrak — "Robo de esencia": cada golpe fuerte a la pelota le
+  // devuelve energía. El umbral de cambio de velocidad distingue un golpe de
+  // un roce (conducirla no cuenta), y el enfriamiento corto evita que un
+  // contacto sostenido de varios frames farmee la barra.
+  if (player.characterId === 'mordrak') {
+    const dv = Math.hypot(ball.vel.x - vAntes.x, ball.vel.y - vAntes.y);
+    const now = performance.now();
+    if (dv > 260 && (!player._esenciaAt || now - player._esenciaAt > 300)) {
+      player._esenciaAt = now;
+      player.addEnergy(9);
+    }
+  }
 }
 
 // Embestida: el que llega más rápido empuja y desestabiliza al otro.
@@ -197,6 +210,16 @@ function applyRam(attacker, victim, nx, ny, cx, cy, ally, fx) {
   // Riesgo/recompensa: embestir cuesta velocidad al que embiste
   attacker.broom.vel.x -= nx * force * R.recoil;
   attacker.broom.vel.y -= ny * force * R.recoil;
+
+  // PASIVA de Petra — "Muralla": embestirla es mala idea. El atacante rebota
+  // con el doble del retroceso normal y sale girando; ella ya casi ni se
+  // mueve por su peso 5. Chocar a la muralla castiga al que choca.
+  if (victim.characterId === 'petra' && !ally) {
+    attacker.broom.vel.x -= nx * force * 1.6;
+    attacker.broom.vel.y -= ny * force * 1.6;
+    attacker.broom.angVel += (Math.random() * 2 - 1) * R.spin * 1.2;
+    fx?.onImpact(cx, cy, closing * 1.4, 'wall');
+  }
 
   attacker.ramCd = R.cooldown;
   fx?.onImpact(cx, cy, closing, 'ram');

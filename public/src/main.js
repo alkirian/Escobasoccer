@@ -17,8 +17,10 @@ import { Renderer } from './render.js';
 import { OrbField, RunnerOrb } from './orbs.js';
 import { ReplayRecorder, ReplayPlayer } from './replay.js';
 import { Coach } from './coach.js';
+import { Hud } from './hud.js';
 import { recordMatch, recordRunnerCatch, isFirstEver, loadStats } from './stats.js';
 import { completeChallenge, selectedPalettes } from './challenges.js';
+import { isUnlocked, matchReward } from './roster.js';
 import { rondaActual, torneoWin, torneoLose, RONDAS } from './torneo.js';
 import { collideBallArena, collideBroomArena, applyPortalSuction } from './arena.js';
 import { interactPlayerBall, interactPlayers, clampRiderArena } from './collisions.js';
@@ -158,7 +160,10 @@ const CHAR_POOL = ['mago', 'valka', 'mordrak', 'izar', 'zefir',
 {
   let pick = params.get('char');
   if (!pick) { try { pick = localStorage.getItem(CHAR_KEY); } catch { /* sin storage */ } }
-  playerA.characterId = CHAR_POOL.includes(pick) ? pick : 'mago';
+  // El humano solo puede jugar personajes DESBLOQUEADOS: ni la URL ni un
+  // guardado viejo saltean el candado. Los bots sí usan el plantel entero —
+  // ver rivales que no tenés es la mejor publicidad del desbloqueo.
+  playerA.characterId = (CHAR_POOL.includes(pick) && isUnlocked(pick)) ? pick : 'mago';
   // Paleta alternativa elegida en la galería (recompensa de desafíos)
   playerA.paletteId = selectedPalettes()[playerA.characterId] ?? null;
   // En torneo el rival lo dicta la ronda, no el azar.
@@ -186,9 +191,13 @@ touch.onFirstTouch = () => sound.init();
 const orbs = NOORBS ? null : new OrbField();
 const runner = NOORBS ? null : new RunnerOrb();
 
-// Estado del dash del jugador humano (2 cargas independientes)
+// Estado del dash del jugador humano (2 cargas independientes).
+// PASIVA de Zefir — "Tercer impulso": si el humano juega con Zefir, lleva 3.
+// El HUD lee maxCharges de acá, así que el tercer rayo aparece solo.
+const HUMAN_DASH_MAX = playerA.characterId === 'zefir'
+  ? DASH.maxCharges + 1 : DASH.maxCharges;
 const dashState = {
-  charges:   DASH.maxCharges,
+  charges:   HUMAN_DASH_MAX,
   rechargeT: 0,
   active:    false,
   t:         0,
@@ -196,7 +205,7 @@ const dashState = {
   // repetir los números a mano. Antes render.js tenía su propia copia
   // (DASH_RECHARGE = 4.0, DASH_MAX = 2) y cambiar el tuning dejaba el HUD
   // mostrando un contador de recarga falso, sin ningún error que lo delatara.
-  maxCharges: DASH.maxCharges,
+  maxCharges: HUMAN_DASH_MAX,
   recharge:   DASH.recharge,
 };
 
@@ -275,17 +284,11 @@ const world = {
   challengeQueue: [],
   // Estela fantasma del dash (siluetas que dibuja el render)
   ghosts: _ghosts,
-  // Overlay de pausa (Continuar/Menú/Salir). El renderer llena `rects` cada
-  // frame con las zonas que dibujó; acá abajo se usan para el hit-test del
-  // mouse — mismo patrón que menu.js pero compartiendo el world en vez de
-  // tener su propia clase, porque esto vive adentro del partido.
-  pauseMenu: { hot: null, rects: [], closeBlockedT: 0 },
-  // Fin de partido: "Jugar de nuevo" / "Volver al menú". Mismo patrón que la
-  // pausa — render.js llena `rects` y acá se resuelve el click.
-  endMenu: { hot: null, rects: [] },
-  // Pantalla "cómo se juega": solo como referencia desde el menú de pausa.
-  // El aprendizaje real lo lleva el coach, jugando.
-  controlsScreen: { open: false, hot: null, rects: [] },
+  // La pausa, el fin de partido y la pantalla de controles ahora son DOM
+  // (ver hud.js + play.html): botones de verdad, sin hit-testing manual.
+  // Acá queda solo el ESTADO que el HUD lee.
+  pauseMenu: { closeBlockedT: 0 },
+  controlsScreen: { open: false },
   coach,                     // lecciones contextuales (el renderer las dibuja)
   replay,                    // reproductor: el renderer lo consulta para dibujar
   // Lo llama Match._resetPositions(). El estado de dash/giro vive acá y no en
@@ -297,7 +300,7 @@ const world = {
     // El buffer arrastra el punto anterior: si no se limpia, la repetición
     // del próximo gol empezaría mostrando el saque viejo.
     replayRec.clear();
-    dashState.charges = DASH.maxCharges;
+    dashState.charges = dashState.maxCharges;
     dashState.rechargeT = 0;
     dashState.active = false;
     dashState.t = 0;
@@ -489,13 +492,13 @@ function step(dt) {
     playerA.updateEnergy(dt, boosting);
 
     // ── Recarga del dash ──────────────────────────────────────────────────
-    if (dashState.charges < DASH.maxCharges) {
+    if (dashState.charges < dashState.maxCharges) {
       // MAGIA (stat): el mod viene invertido, así que más magia = el
       // contador avanza más rápido = recarga antes.
       dashState.rechargeT += dt / playerA.mods.dashRecharge;
       if (dashState.rechargeT >= DASH.recharge) {
         dashState.charges++;
-        dashState.rechargeT = dashState.charges < DASH.maxCharges
+        dashState.rechargeT = dashState.charges < dashState.maxCharges
           ? dashState.rechargeT - DASH.recharge : 0;
       }
     }
@@ -786,7 +789,22 @@ function step(dt) {
   _prevBallSpd = _bs;
 }
 
-// Acciones del overlay de pausa (ver world.pauseMenu / render.js#_pauseMenu).
+// El torneo no repite el mismo partido: navega a lo que sigue — próxima ronda
+// (o la misma si perdió) o, de campeón, a los trofeos. Recargar la página
+// además vuelve a leer la ronda desde el storage.
+function _torneoContinue() {
+  if (world.torneoResult.campeon) {
+    location.href = 'trofeos.html?campeon=1';
+  } else {
+    const q = new URLSearchParams();
+    q.set('mode', 'torneo');
+    if (MUTE) q.set('mute', '1');
+    if (NOORBS) q.set('noorbs', '1');
+    location.href = `play.html?${q}`;
+  }
+}
+
+// Acciones del overlay de pausa (botones del HUD DOM, ver hud.js).
 function _pauseAction(id) {
   if (id === 'continuar') { world.paused = false; return; }
   if (id === 'controles') { world.controlsScreen.open = true; return; }
@@ -820,13 +838,9 @@ function frame(now) {
   // así que ni las teclas globales ni el juego reciben nada hasta cerrarla.
   const cs = world.controlsScreen;
   if (cs.open) {
-    cs.hot = null;
-    for (const r of cs.rects) {
-      if (input.cursor.x >= r.x && input.cursor.x <= r.x + r.w
-        && input.cursor.y >= r.y && input.cursor.y <= r.y + r.h) { cs.hot = r.id; break; }
-    }
-    const cerrar = input.pressed('lmb') || input.pressed('Enter')
-      || input.pressed('Space') || input.pressed('Escape') || touch.consumeTap();
+    // El click lo maneja el botón del HUD; por teclado se cierra igual.
+    const cerrar = input.pressed('Enter') || input.pressed('Space')
+      || input.pressed('Escape') || touch.consumeTap();
     if (cerrar) {
       cs.open = false;
       // Si se abrió durante la cuenta regresiva, que arranque de cero para
@@ -835,6 +849,7 @@ function frame(now) {
     }
     input.endFrame();
     renderer.draw(world, dtReal);
+    hud.sync(world, dtReal);
     return;
   }
 
@@ -850,6 +865,7 @@ function frame(now) {
       { w: canvas.clientWidth, h: canvas.clientHeight });
     input.endFrame();
     renderer.draw(world, dtReal);
+    hud.sync(world, dtReal);
     return;
   }
 
@@ -902,64 +918,27 @@ function frame(now) {
           world.torneoResult = { win: false };
         }
       }
+
+      // Monedas del partido: la economía que desbloquea personajes. Va al
+      // final de la transición porque el bono de campeón necesita que el
+      // torneo ya haya resuelto su resultado.
+      world.coinsEarned = matchReward({
+        win: match.winner === 'p1',
+        golesFavor: match.score.p1,
+        campeon: !!world.torneoResult?.campeon,
+      });
     }
   }
 
-  // Overlay de pausa: hover con la posición del mouse (ya la trae input.cursor
-  // en px de pantalla, igual sistema de coordenadas que usó render.js para
-  // dibujar los botones) y click para elegir.
-  if (world.paused) {
-    const pm = world.pauseMenu;
-    pm.hot = null;
-    for (const r of pm.rects) {
-      if (input.cursor.x >= r.x && input.cursor.x <= r.x + r.w
-        && input.cursor.y >= r.y && input.cursor.y <= r.y + r.h) { pm.hot = r.id; break; }
-    }
-    if (input.pressed('lmb') && pm.hot) _pauseAction(pm.hot);
-  } else if (match.state === 'end' && !TORNEO && !world.torneoResult) {
-    // Partido suelto: dos botones. "Jugar de nuevo" vuelve a la pantalla de
-    // preparar partido CON LOS MISMOS PARÁMETROS (modo, duración/goles,
-    // dificultad) para que solo haya que elegir personaje y entrar directo.
-    const em = world.endMenu;
-    em.hot = null;
-    for (const r of em.rects) {
-      if (input.cursor.x >= r.x && input.cursor.x <= r.x + r.w
-        && input.cursor.y >= r.y && input.cursor.y <= r.y + r.h) { em.hot = r.id; break; }
-    }
-    const tap = touch.consumeTap();
-    if (input.pressed('lmb') || tap) {
-      // En táctil no hay hover: el toque decide por posición.
-      let id = em.hot;
-      if (tap && !id) {
-        const t = touch.tapPos;
-        for (const r of em.rects) {
-          if (t && t.x >= r.x && t.x <= r.x + r.w && t.y >= r.y && t.y <= r.y + r.h) { id = r.id; break; }
-        }
-      }
-      if (id === 'menu') location.href = 'index.html';
-      else if (id === 'revancha') location.href = `jugar.html${location.search}`;
-    } else if (input.pressed('Enter')) {
-      location.href = `jugar.html${location.search}`;   // ENTER = revancha
-    }
-  } else if (match.state === 'end' && (input.pressed('lmb') || input.pressed('Enter') || touch.consumeTap())) {
-    if (TORNEO && world.torneoResult) {
-      // El torneo no repite el mismo partido: navega a lo que sigue —
-      // próxima ronda (o la misma si perdió) o, de campeón, a los trofeos.
-      // Recargar la página además vuelve a leer la ronda desde el storage.
-      if (world.torneoResult.campeon) {
-        location.href = 'trofeos.html?campeon=1';
-      } else {
-        const q = new URLSearchParams();
-        q.set('mode', 'torneo');
-        if (MUTE) q.set('mute', '1');
-        if (NOORBS) q.set('noorbs', '1');
-        location.href = `play.html?${q}`;
-      }
-    } else {
-      // Partido nuevo, SIN presentación: el jugador ya está en la cancha y
-      // acaba de ver el marcador final. Repetir el viaje de cámara acá es lo
-      // que se sentía fuera de lugar.
-      match.reset(true);
+  // Los clicks de pausa y fin de partido ahora los resuelven los botones del
+  // HUD DOM (hud.js). Por teclado queda lo puntual:
+  if (!world.paused && match.state === 'end') {
+    if (!TORNEO && !world.torneoResult) {
+      // ENTER = revancha, con los mismos parámetros del partido.
+      if (input.pressed('Enter')) location.href = `jugar.html${location.search}`;
+    } else if (TORNEO && world.torneoResult
+      && (input.pressed('Enter') || input.pressed('Space') || touch.consumeTap())) {
+      _torneoContinue();
     }
   }
 
@@ -1088,9 +1067,32 @@ function frame(now) {
   }
 
   renderer.draw(world, dtReal);
+  hud.sync(world, dtReal);
 }
 
 const renderer = new Renderer(canvas, ctx);
+
+// ── HUD en DOM ─────────────────────────────────────────────────────────────
+// La interfaz del partido vive en play.html como HTML/CSS; hud.js la
+// sincroniza por frame. Los botones llaman directo a las acciones del juego.
+const hud = new Hud({
+  onPause: (id) => _pauseAction(id),
+  onEnd: (id) => {
+    if (id === 'menu') location.href = 'index.html';
+    else if (id === 'revancha') location.href = `jugar.html${location.search}`;
+  },
+  onCloseControls: () => {
+    world.controlsScreen.open = false;
+    // Si se abrió durante la cuenta regresiva, que arranque de cero para no
+    // perder los primeros segundos leyendo.
+    if (match.state === 'countdown') match.reset(false);
+  },
+});
+// Torneo: el fin de partido no tiene botones — se sigue tocando en cualquier
+// lado. El overlay DOM tapa el canvas, así que el toque se escucha acá.
+document.getElementById('endScreen').addEventListener('click', () => {
+  if (match.state === 'end' && TORNEO && world.torneoResult) _torneoContinue();
+});
 
 // ── Pantalla de carga ──────────────────────────────────────────────────────
 // play.html muestra un overlay hasta que el mapa (el asset pesado) está

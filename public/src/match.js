@@ -131,15 +131,20 @@ export class Match {
       b.slamT = 0;    // la onda saca del aturdimiento a quien se acababa de golpear
       // PESO (stat): a Petra la onda apenas la despeina; a Zefir lo manda
       // al otro lado del mapa. Es la mitad defensiva del stat.
-      const kb = pl.mods ? pl.mods.knockback : 1;
+      // PASIVA de Valka — "Inquebrantable": planta el escudo y la explosión
+      // del gol casi no la toca. Mientras todos vuelan por el aire, ella ya
+      // está acomodada para el saque.
+      const valka = pl.characterId === 'valka' ? 0.15 : 1;
+      const kb = (pl.mods ? pl.mods.knockback : 1) * valka;
       b.vel.x += ux * push * kb;
       b.vel.y += uy * push * kb;
-      b.angVel += (Math.random() * 2 - 1) * G.spin * (0.35 + falloff);
+      b.angVel += (Math.random() * 2 - 1) * G.spin * (0.35 + falloff) * valka;
       // El cuerpo recibe el golpe por su cuenta: sale disparado respecto de su
       // propia escoba y queda hecho un desastre colgando de las manos.
+      // (El de Valka también se queda: la pasiva cubre cuerpo y escoba.)
       for (const { p } of pl.rider.hitPoints()) {
-        p.px -= ux * push * G.bodyKick * (0.4 + falloff);
-        p.py -= uy * push * G.bodyKick * (0.4 + falloff);
+        p.px -= ux * push * G.bodyKick * (0.4 + falloff) * valka;
+        p.py -= uy * push * G.bodyKick * (0.4 + falloff) * valka;
       }
     }
 

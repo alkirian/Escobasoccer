@@ -64,6 +64,12 @@ export class Player {
   updateEnergy(dt, wantBoost) {
     const B = CFG.boost;
     if (this.energyPulse > 0) this.energyPulse = Math.max(0, this.energyPulse - dt * 2.4);
+    // PASIVA de Aldus — "Segundo aliento": la barra sube sola, despacio.
+    // 3/s contra un drenaje de boost de ~46/s: no reemplaza a los orbes,
+    // garantiza que nunca esté en cero seco.
+    if (this.characterId === 'mago') {
+      this.energy = clamp(this.energy + 3 * dt, 0, B.max);
+    }
     if (this.unlimitedT > 0) {
       this.unlimitedT -= dt;
       this.energy = B.max;      // el frasco se mantiene lleno solo
