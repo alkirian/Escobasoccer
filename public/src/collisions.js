@@ -60,6 +60,9 @@ function maybeIgnite(rider, ball) {
 export function interactPlayerBall(player, ball, dt, fx) {
   const B = CFG.ball;
   const aimed = aimedNow(player.rider);
+  // Velocidad ANTES de cualquier contacto de este jugador. Se compara al final
+  // para saber si hubo golpe y si fue una devolución (contragolpe encadenado).
+  const vAntes = { x: ball.vel.x, y: ball.vel.y };
 
   // 1) Puntos del cuerpo (cabeza, torso, piernas, pies)
   for (const { name, p } of player.rider.hitPoints()) {
@@ -138,6 +141,16 @@ export function interactPlayerBall(player, ball, dt, fx) {
       player.broom.applyImpulseAt(c.x, c.y, -nx * j * 0.12, -ny * j * 0.12);
       if (onTip || aimed) fx?.onImpact(c.x, c.y, Math.abs(vn), 'broom');
     }
+  }
+
+  // ── Contragolpe encadenado ────────────────────────────────────────────
+  // Se evalúa UNA vez por jugador y por frame, con la velocidad de entrada y
+  // la de salida ya resueltas por toda la física de arriba (cuerpo + escoba).
+  // Así da igual con qué parte conectó: lo que decide es si la devolvió.
+  const nivel = ball.registerHit(vAntes, ball.vel);
+  if (nivel > 0) {
+    ball.lastHitter = player;
+    fx?.onChainHit?.(ball.pos.x, ball.pos.y, nivel, player);
   }
 }
 

@@ -407,6 +407,22 @@ const fx = {
       // sacudir la pantalla en cada golpe suelto se sentía excesivo.
     }
   },
+
+  // Contragolpe encadenado: acá SÍ se sacude la pantalla, porque es un
+  // momento puntual y espectacular, no un golpe cualquiera. La intensidad
+  // sube con el nivel de la cadena.
+  onChainHit(x, y, nivel) {
+    _hitstopT = Math.max(_hitstopT, 0.05 + 0.02 * nivel);
+    camera.shake(6 + 4 * nivel, 20);
+    camera.setSpeedPunch(0.5);
+    renderer?.addShockRing(x, y, 700 + 260 * nivel);
+    particles.impact(x, y, 520 + 180 * nivel);
+    sound.impact(900);
+    // Aviso en pantalla: "¡CRÍTICO!" y, del segundo eslabón en adelante,
+    // "¡ZIGZAG!" — el jugador tiene que entender POR QUÉ la pelota se volvió
+    // loca, si no parece un bug.
+    renderer?.chainToast(nivel);
+  },
 };
 
 let debugOn = DEBUG;
@@ -666,7 +682,15 @@ function step(dt) {
       if (pl === playerA && spin.active) continue;
       interactPlayerBall(pl, ball, dt, fx);
     }
-    const goal = collideBallArena(ball, (x, y, s) => { if (s > 180) fx.onImpact(x, y, s, 'wall'); });
+    // Arcos sellados los primeros segundos del punto: la pelota rebota en el
+    // portal en vez de entrar. `playT` lo lleva match.js desde el "¡YA!".
+    const sealed = match.state === 'play'
+      && (match.playT ?? 99) < CFG.match.goalSeal;
+    const goal = collideBallArena(
+      ball,
+      (x, y, s) => { if (s > 180) fx.onImpact(x, y, s, 'wall'); },
+      sealed,
+    );
     if (goal && match.state === 'play') {
       if (REPLAY_ON) {
         // Un último snapshot FORZADO con la pelota ya cruzando la línea. El

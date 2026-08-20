@@ -27,13 +27,17 @@ export function applyPortalSuction(ball, dt) {
 }
 
 // Pelota vs arena. Devuelve 'goalL' | 'goalR' | null. onBounce(x,y,fuerza)
-export function collideBallArena(ball, onBounce) {
+// `sealed` = arcos cerrados: los portales rebotan como pared en vez de dejar
+// entrar la pelota. Lo usa el arranque de cada punto para que nadie convierta
+// en los primeros segundos, cuando todos salen apelotonados desde el centro y
+// un toque afortunado terminaba en gol antes de que empezara la jugada.
+export function collideBallArena(ball, onBounce, sealed = false) {
   const { L, R, T, B, portalY, portalR } = CFG.arena;
   const b = CFG.ball.bounce;
   const r = ball.r;
 
   // ¿Está a la altura del arco? → entra en vez de rebotar
-  const inPortalBand = Math.abs(ball.pos.y - portalY) < portalR - r * 0.35;
+  const inPortalBand = !sealed && Math.abs(ball.pos.y - portalY) < portalR - r * 0.35;
 
   if (ball.pos.x - r < L) {
     if (inPortalBand) return 'goalL';

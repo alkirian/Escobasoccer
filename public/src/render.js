@@ -620,6 +620,41 @@ export class Renderer {
     });
   }
 
+  // Cartel del contragolpe encadenado. Sin esto la pelota se vuelve loca y el
+  // jugador no sabe por qué: el aviso convierte un "bug" aparente en una
+  // mecánica que se entiende al primer intento.
+  chainToast(nivel) {
+    this._chainToast = {
+      t: 0,
+      life: 1.1,
+      texto: nivel >= 2 ? '¡ZIGZAG!' : '¡CRÍTICO!',
+      nivel,
+    };
+  }
+
+  _chainToastDraw(ctx, W, H) {
+    const c = this._chainToast;
+    if (!c) return;
+    c.t += this._dt || 0.016;
+    if (c.t >= c.life) { this._chainToast = null; return; }
+    const k = c.t / c.life;
+    // Entra de golpe y se va desvaneciendo hacia arriba
+    const alpha = k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85;
+    const dy = -k * 34;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 54px Georgia, serif';
+    const col = c.nivel >= 2 ? '#ff5a10' : '#ffd76a';
+    ctx.fillStyle = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 26;
+    // Bien arriba: el "¡YA!" y el "¡GOOOL!" viven en H*0.36-0.40 y se pisaban.
+    ctx.fillText(c.texto, W / 2, H * 0.18 + dy);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
   _shockRings(ctx) {
     const rings = this._rings;
     if (!rings || !rings.length) return;
@@ -669,6 +704,7 @@ export class Renderer {
     const { imgW, imgH } = CFG.arena;
     if (this.mapReady) {
       ctx.drawImage(this.mapImg, -imgW / 2, -imgH / 2, imgW, imgH);
+      this._fadeMidCircle(ctx);
     } else {
       const g = ctx.createLinearGradient(0, -imgH / 2, 0, imgH / 2);
       g.addColorStop(0, '#0b0a24');
@@ -676,6 +712,36 @@ export class Renderer {
       ctx.fillStyle = g;
       ctx.fillRect(-imgW / 2, -imgH / 2, imgW, imgH);
     }
+  }
+
+  // El círculo de medio campo está PINTADO EN LA PARED del mapa, justo a la
+  // altura por la que vuela la pelota. No hay ningún colisionador ahí (lo
+  // verifiqué lanzando la pelota por el centro sin jugadores: pasa derecho,
+  // los únicos rebotes son piso y techo), pero la línea curva a media altura
+  // se lee como una superficie y da la sensación de que la pelota va a
+  // rebotar. Como el círculo vive en el PNG, no se puede borrar: se atenúa
+  // pintando encima un velo suave del color de la pared.
+  //
+  // Sólo la parte AÉREA. El círculo del piso queda intacto: ahí sí es
+  // referencia útil de medio campo y nadie lo confunde con una pared.
+  _fadeMidCircle(ctx) {
+    // Medido en pantalla y convertido a mundo: el círculo pintado está
+    // centrado en (-37, 2) con radio ~214.
+    const cx = -37, cy = 2, r = 250;
+    ctx.save();
+    // Se OSCURECE en vez de taparse con un parche gris: un disco opaco encima
+    // de la piedra se nota como una mancha, mientras que bajar el contraste
+    // hace desaparecer la línea blanca sin tocar la textura del muro.
+    ctx.globalCompositeOperation = 'multiply';
+    const g = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r);
+    g.addColorStop(0, 'rgba(150,140,150,1)');
+    g.addColorStop(0.75, 'rgba(180,172,180,1)');
+    g.addColorStop(1, 'rgba(255,255,255,1)');   // neutro en el borde
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, 7);
+    ctx.fill();
+    ctx.restore();
   }
 
   // Los arcos rúnicos ya están pintados en la imagen: acá sólo se agrega el
@@ -2360,6 +2426,9 @@ export class Renderer {
       ctx.fillText('¡YA!', cx, H * 0.4);
       ctx.shadowBlur = 0;
     }
+
+    // Cartel del contragolpe encadenado (¡CRÍTICO! / ¡ZIGZAG!)
+    this._chainToastDraw(ctx, W, H);
 
     // GOL — el texto entra con el estallido, no antes
     if (m.state === 'goal' && m.blasted) {

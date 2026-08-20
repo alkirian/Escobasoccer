@@ -17,6 +17,56 @@ export class Ball {
     // "esto viene con todo" que se lee de un vistazo desde el otro arco.
     this.fire = 0;       // 0..1, intensidad actual
     this.fireT = 0;
+
+    // ── Cadena de contragolpes ──────────────────────────────────────────
+    // Pegarle a la pelota CONTRA su dirección de vuelo (una devolución de
+    // volea, no un empujoncito acompañando) encadena. Cada eslabón la manda
+    // más rápido, y a partir del segundo sale en zigzag. `chain` es el nivel
+    // actual y `chainT` la ventana para encadenar: si nadie la devuelve a
+    // tiempo, se enfría sola y vuelve a cero.
+    this.chain = 0;
+    this.chainT = 0;
+    this.zig = 0;        // amplitud del zigzag (0 = recto)
+    this.zigPhase = 0;
+    this.chainFlash = 0; // destello al encadenar, para el render
+  }
+
+  // La llama collisions.js cuando alguien golpea. `vnAntes`/`vnDespues` son
+  // la velocidad antes y después del impacto. Devuelve el nivel de cadena
+  // alcanzado (0 = no encadenó) para que el que golpea pueda reaccionar
+  // (sonido, partículas, sacudón de cámara).
+  registerHit(velAntes, velDespues) {
+    const C = CFG.ball.chain;
+    const spAntes = Math.hypot(velAntes.x, velAntes.y);
+    const spDespues = Math.hypot(velDespues.x, velDespues.y);
+
+    // Un contragolpe de verdad: la pelota venía rápido y sale rápido EN
+    // SENTIDO CONTRARIO. El producto punto negativo es justo eso — devolverla,
+    // no acompañarla. Sin este filtro, cualquier roce mientras la pelota vuela
+    // encadenaría y el efecto perdería todo el sentido.
+    if (spAntes < C.minIn || spDespues < C.minOut) { return 0; }
+    const dot = (velAntes.x * velDespues.x + velAntes.y * velDespues.y)
+      / (spAntes * spDespues);
+    if (dot > -C.minDot) return 0;    // no es devolución: no encadena
+
+    // Dentro de la ventana suma eslabón; fuera, arranca de nuevo en 1.
+    this.chain = this.chainT > 0 ? Math.min(this.chain + 1, C.maxLevel) : 1;
+    this.chainT = C.window;
+    this.chainFlash = 1;
+
+    if (this.chain >= 1) {
+      // Nivel 1: golpe crítico — el doble de velocidad y estela de fuego.
+      // Nivel 2+: además sale zigzagueando camino al arco.
+      const mul = 1 + C.speedMul * this.chain;
+      this.vel.x = velDespues.x * mul;
+      this.vel.y = velDespues.y * mul;
+      this.ignite();
+      if (this.chain >= 2) {
+        this.zig = C.zigAmp * (this.chain - 1);
+        this.zigPhase = 0;
+      }
+    }
+    return this.chain;
   }
 
   ignite() {
@@ -32,10 +82,36 @@ export class Ball {
     const f = Math.exp(-(B.dragLin + B.dragQuad * sp) * dt);
     this.vel.x *= f;
     this.vel.y *= f;
-    if (sp > B.maxSpeed) {
-      this.vel.x *= B.maxSpeed / sp;
-      this.vel.y *= B.maxSpeed / sp;
+    // El techo de velocidad sube con la cadena: si no, el "doble de
+    // velocidad" del contragolpe lo recortaba este clamp y no se notaba nada.
+    const cap = B.maxSpeed * (1 + B.chain.capBonus * this.chain);
+    if (sp > cap) {
+      this.vel.x *= cap / sp;
+      this.vel.y *= cap / sp;
     }
+
+    // ── Zigzag del contragolpe encadenado ───────────────────────────────
+    // Empuje perpendicular al rumbo, oscilando: la pelota serpentea camino al
+    // arco en vez de ir recta. Se aplica como aceleración lateral (no
+    // reescribiendo la velocidad) para que siga sintiéndose física y para no
+    // pelearse con el rebote de las paredes.
+    if (this.zig > 0.001 && this.chainT > 0) {
+      const C = B.chain;
+      this.zigPhase += C.zigFreq * dt;
+      const s = Math.hypot(this.vel.x, this.vel.y) || 1;
+      const px = -this.vel.y / s, py = this.vel.x / s;   // perpendicular
+      const a = Math.cos(this.zigPhase) * this.zig;
+      this.vel.x += px * a * dt;
+      this.vel.y += py * a * dt;
+    }
+
+    // Enfriamiento de la cadena: si nadie la devuelve, vuelve a cero.
+    if (this.chainT > 0) {
+      this.chainT -= dt;
+      if (this.chainT <= 0) { this.chain = 0; this.zig = 0; }
+    }
+    if (this.chainFlash > 0) this.chainFlash = Math.max(0, this.chainFlash - dt * 2.2);
+
     this.pos.x += this.vel.x * dt;
     this.pos.y += this.vel.y * dt;
     this.spin = clamp(this.vel.x / 60, -12, 12);
@@ -74,5 +150,12 @@ export class Ball {
     this.rot = 0;
     this.fire = 0;
     this.fireT = 0;
+    // La cadena no sobrevive al saque: si no, el primer toque del punto
+    // siguiente encadenaría contra un golpe del punto anterior.
+    this.chain = 0;
+    this.chainT = 0;
+    this.zig = 0;
+    this.chainFlash = 0;
+    this.lastHitter = null;
   }
 }

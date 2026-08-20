@@ -175,6 +175,27 @@ export const CFG = {
     maxSpeed: 6200,
     // Cuánto dura prendida la pelota tras un tiro de fuego
     fireTime: 2.4,
+
+    // ── Contragolpes encadenados (golpes críticos) ──────────────────────
+    // Devolver de volea una pelota que viene fuerte es un GOLPE CRÍTICO: sale
+    // al doble de velocidad y envuelta en fuego. Si alguien la devuelve otra
+    // vez dentro de la ventana, el siguiente sale más fuerte todavía y además
+    // zigzagueando camino al arco. Premia el ida y vuelta rápido, que es el
+    // momento más divertido del juego, y no el empujón acompañando.
+    chain: {
+      window:   1.6,   // segundos para encadenar el siguiente contragolpe
+      maxLevel: 3,     // tope de eslabones (más sería incontrolable)
+      speedMul: 1.0,   // nivel 1 = ×2, nivel 2 = ×3, nivel 3 = ×4
+      capBonus: 0.55,  // cuánto sube el techo de velocidad por eslabón
+      minIn:    620,   // la pelota tenía que venir rápido de verdad
+      minOut:   700,   // y salir rápido: un roce no cuenta
+      minDot:   0.35,  // cuán "de frente" hay que devolverla (0..1)
+      // Medido: con 2600 y 7.5 la pelota apenas ondulaba 107 unidades — a la
+      // velocidad del contragolpe cruza la cancha antes de completar medio
+      // ciclo. Subido fuerte para que el zigzag se VEA de verdad.
+      zigAmp:   9000,  // aceleración lateral del zigzag por eslabón extra
+      zigFreq:  4.2,   // qué tan cerrado serpentea (rad/s)
+    },
     bodyKick: 0.85,      // transferencia de golpe del cuerpo (a máxima velocidad de contacto)
     feetKick: 1.3,       // los pies pegan más fuerte (brake kick / flick)
     broomKick: 0.7,      // la punta de la escoba: precisa pero no dominante
@@ -386,6 +407,11 @@ export const CFG = {
     // desde el countdown, así son 5 s de juego real: los dos salen a buscar la
     // pelota volando y nadie la roba de entrada con un dash instantáneo.
     dashLockout: 5.0,
+    // Arcos cerrados al arranque de cada punto: durante estos segundos los
+    // portales rebotan como pared. Evita el gol de rebote en los primeros
+    // toques, cuando los cuatro salen del centro amontonados y la pelota
+    // sale disparada para cualquier lado. Se cuenta desde el "¡YA!".
+    goalSeal: 5.0,
   },
 
   // Dash (Space / doble toque). Vivía como const suelta en main.js, atada
