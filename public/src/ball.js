@@ -28,6 +28,9 @@ export class Ball {
     this.chainT = 0;
     this.zig = 0;        // amplitud del zigzag (0 = recto)
     this.zigPhase = 0;
+    // Rumbo FIJO del disparo, capturado en el momento del golpe. El zigzag
+    // oscila alrededor de esta recta, no del rumbo instantáneo.
+    this.zigDir = { x: 1, y: 0 };
     this.chainFlash = 0; // destello al encadenar, para el render
   }
 
@@ -64,6 +67,11 @@ export class Ball {
       if (this.chain >= 2) {
         this.zig = C.zigAmp * (this.chain - 1);
         this.zigPhase = 0;
+        // Se guarda la dirección EXACTA del golpe. El zigzag serpentea a los
+        // costados de esta recta, así que la pelota siempre avanza hacia donde
+        // el jugador la mandó: es una sensación de fuerza, no de pelota loca.
+        const s = Math.hypot(this.vel.x, this.vel.y) || 1;
+        this.zigDir = { x: this.vel.x / s, y: this.vel.y / s };
       }
     }
     return this.chain;
@@ -91,18 +99,32 @@ export class Ball {
     }
 
     // ── Zigzag del contragolpe encadenado ───────────────────────────────
-    // Empuje perpendicular al rumbo, oscilando: la pelota serpentea camino al
-    // arco en vez de ir recta. Se aplica como aceleración lateral (no
-    // reescribiendo la velocidad) para que siga sintiéndose física y para no
-    // pelearse con el rebote de las paredes.
+    // La pelota serpentea PERO SIEMPRE AVANZANDO hacia donde el jugador la
+    // mandó. El rumbo se arma cada frame como "la recta del disparo, desviada
+    // un ángulo que oscila": el desvío tiene tope (zigMaxAng), así que nunca
+    // se da vuelta.
+    //
+    // Antes esto era una aceleración perpendicular a la velocidad ACTUAL, y
+    // ahí estaba el problema: al curvarse la trayectoria, la perpendicular
+    // giraba con ella y se realimentaba. Medido: la pelota giraba 181° y
+    // terminaba volviendo hacia atrás — parecía azar, no fuerza.
     if (this.zig > 0.001 && this.chainT > 0) {
       const C = B.chain;
       this.zigPhase += C.zigFreq * dt;
-      const s = Math.hypot(this.vel.x, this.vel.y) || 1;
-      const px = -this.vel.y / s, py = this.vel.x / s;   // perpendicular
-      const a = Math.cos(this.zigPhase) * this.zig;
-      this.vel.x += px * a * dt;
-      this.vel.y += py * a * dt;
+      const sp2 = Math.hypot(this.vel.x, this.vel.y);
+      if (sp2 > 1) {
+        // Ángulo de desvío respecto de la recta del disparo. La amplitud
+        // escala con el nivel de cadena pero está topeada.
+        const amp = Math.min(C.zigMaxAng * this.chain * 0.5, C.zigMaxAng);
+        const ang = Math.sin(this.zigPhase) * amp;
+        const cos = Math.cos(ang), sin = Math.sin(ang);
+        // Rotar la dirección FIJA del disparo, no la velocidad actual.
+        const dx = this.zigDir.x * cos - this.zigDir.y * sin;
+        const dy = this.zigDir.x * sin + this.zigDir.y * cos;
+        // Se conserva el módulo: el zigzag no acelera ni frena, sólo desvía.
+        this.vel.x = dx * sp2;
+        this.vel.y = dy * sp2;
+      }
     }
 
     // Enfriamiento de la cadena: si nadie la devuelve, vuelve a cero.

@@ -819,8 +819,93 @@ export class Renderer {
       ctx.fill();
     }
 
+    // ── Portal SELLADO: reja + candado ──────────────────────────────────
+    // Los primeros segundos de cada saque el arco rebota como pared. Sin una
+    // señal visible el jugador tira, ve rebotar la pelota y cree que es un
+    // bug. La reja dice "acá no se entra" y el candado lo confirma.
+    const seal = this._portalSeal(world);
+    if (seal > 0) {
+      ctx.globalAlpha = 1;
+      const R = portalR;
+      // Se abre como una persiana en el último medio segundo: el jugador ve
+      // venir la apertura y puede preparar el tiro.
+      const k = Math.min(1, seal / 0.5);      // 1 = cerrado, 0 = abriendo
+      const alpha = 0.30 + 0.45 * k;
+
+      ctx.save();
+      // Barrotes verticales, recortados al círculo del portal
+      ctx.beginPath();
+      ctx.arc(0, 0, R * 0.96, 0, 7);
+      ctx.clip();
+      ctx.strokeStyle = `rgba(190,205,225,${alpha})`;
+      ctx.lineWidth = 7 * S;
+      ctx.lineCap = 'round';
+      const nB = 5;
+      for (let i = 0; i < nB; i++) {
+        const x = -R * 0.62 + (i / (nB - 1)) * R * 1.24;
+        const h = R * 0.94 * k;
+        ctx.beginPath();
+        ctx.moveTo(x, -h); ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      // Dos travesaños
+      ctx.lineWidth = 5.5 * S;
+      for (const yy of [-R * 0.34, R * 0.34]) {
+        ctx.beginPath();
+        ctx.moveTo(-R * 0.9 * k, yy); ctx.lineTo(R * 0.9 * k, yy);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Candado en el centro, con un latido suave
+      const pl = 1 + 0.06 * Math.sin(this.t * 5);
+      ctx.save();
+      ctx.translate(0, 0);
+      ctx.scale(pl * k, pl * k);
+      const bodyW = R * 0.42, bodyH = R * 0.34;
+      // arco del candado
+      ctx.strokeStyle = `rgba(235,242,255,${alpha + 0.2})`;
+      ctx.lineWidth = 7 * S;
+      ctx.beginPath();
+      ctx.arc(0, -bodyH * 0.55, bodyW * 0.34, Math.PI, 0);
+      ctx.stroke();
+      // cuerpo
+      ctx.fillStyle = `rgba(214,226,245,${alpha + 0.25})`;
+      ctx.strokeStyle = `rgba(60,70,95,${alpha + 0.3})`;
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath();
+      ctx.roundRect(-bodyW / 2, -bodyH * 0.18, bodyW, bodyH, 6 * S);
+      ctx.fill();
+      ctx.stroke();
+      // ojo de la cerradura
+      ctx.fillStyle = `rgba(45,55,80,${alpha + 0.35})`;
+      ctx.beginPath();
+      ctx.arc(0, bodyH * 0.30, bodyW * 0.11, 0, 7);
+      ctx.fill();
+      ctx.fillRect(-bodyW * 0.045, bodyH * 0.30, bodyW * 0.09, bodyH * 0.30);
+      ctx.restore();
+
+      // Cuenta regresiva bajo el candado: saber CUÁNTO falta cambia la
+      // decisión (esperar o seguir jugando la pelota).
+      if (seal > 0.15) {
+        ctx.globalAlpha = 0.85 * k;
+        ctx.fillStyle = '#e8eefc';
+        ctx.textAlign = 'center';
+        ctx.font = `bold ${Math.round(R * 0.42)}px Georgia, serif`;
+        ctx.fillText(String(Math.ceil(seal)), 0, R * 0.92);
+      }
+    }
+
     ctx.globalAlpha = 1;
     ctx.restore();
+  }
+
+  // Segundos que le quedan al sellado de los arcos (0 = abiertos).
+  _portalSeal(world) {
+    const m = world?.match;
+    if (!m || m.state !== 'play') return 0;
+    const t = m.playT ?? 99;
+    return Math.max(0, CFG.match.goalSeal - t);
   }
 
   // ---------- ORBE FUGITIVO ----------

@@ -35,6 +35,7 @@ export function collideBallArena(ball, onBounce, sealed = false) {
   const { L, R, T, B, portalY, portalR } = CFG.arena;
   const b = CFG.ball.bounce;
   const r = ball.r;
+  let reboto = false;
 
   // ¿Está a la altura del arco? → entra en vez de rebotar
   const inPortalBand = !sealed && Math.abs(ball.pos.y - portalY) < portalR - r * 0.35;
@@ -42,19 +43,28 @@ export function collideBallArena(ball, onBounce, sealed = false) {
   if (ball.pos.x - r < L) {
     if (inPortalBand) return 'goalL';
     ball.pos.x = L + r;
-    if (ball.vel.x < 0) { onBounce?.(L, ball.pos.y, Math.abs(ball.vel.x)); ball.vel.x = -ball.vel.x * b; }
+    if (ball.vel.x < 0) { onBounce?.(L, ball.pos.y, Math.abs(ball.vel.x)); ball.vel.x = -ball.vel.x * b; reboto = true; }
   } else if (ball.pos.x + r > R) {
     if (inPortalBand) return 'goalR';
     ball.pos.x = R - r;
-    if (ball.vel.x > 0) { onBounce?.(R, ball.pos.y, Math.abs(ball.vel.x)); ball.vel.x = -ball.vel.x * b; }
+    if (ball.vel.x > 0) { onBounce?.(R, ball.pos.y, Math.abs(ball.vel.x)); ball.vel.x = -ball.vel.x * b; reboto = true; }
   }
 
   if (ball.pos.y - r < T) {
     ball.pos.y = T + r;
-    if (ball.vel.y < 0) { onBounce?.(ball.pos.x, T, Math.abs(ball.vel.y)); ball.vel.y = -ball.vel.y * b; }
+    if (ball.vel.y < 0) { onBounce?.(ball.pos.x, T, Math.abs(ball.vel.y)); ball.vel.y = -ball.vel.y * b; reboto = true; }
   } else if (ball.pos.y + r > B) {
     ball.pos.y = B - r;
-    if (ball.vel.y > 0) { onBounce?.(ball.pos.x, B, Math.abs(ball.vel.y)); ball.vel.y = -ball.vel.y * b; ball.vel.x *= 0.985; }
+    if (ball.vel.y > 0) { onBounce?.(ball.pos.x, B, Math.abs(ball.vel.y)); ball.vel.y = -ball.vel.y * b; ball.vel.x *= 0.985; reboto = true; }
+  }
+
+  // El zigzag del contragolpe serpentea alrededor de una recta fija. Si la
+  // pelota rebotó, esa recta quedó apuntando CONTRA la pared y el zigzag la
+  // empujaría a atravesarla. Se realinea con el rumbo nuevo para que siga
+  // serpenteando, ahora en la dirección del rebote.
+  if (reboto && ball.zig > 0.001) {
+    const s = Math.hypot(ball.vel.x, ball.vel.y);
+    if (s > 1) { ball.zigDir.x = ball.vel.x / s; ball.zigDir.y = ball.vel.y / s; }
   }
   return null;
 }

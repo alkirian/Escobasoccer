@@ -190,11 +190,17 @@ export const CFG = {
       minIn:    620,   // la pelota tenía que venir rápido de verdad
       minOut:   700,   // y salir rápido: un roce no cuenta
       minDot:   0.35,  // cuán "de frente" hay que devolverla (0..1)
-      // Medido: con 2600 y 7.5 la pelota apenas ondulaba 107 unidades — a la
-      // velocidad del contragolpe cruza la cancha antes de completar medio
-      // ciclo. Subido fuerte para que el zigzag se VEA de verdad.
-      zigAmp:   9000,  // aceleración lateral del zigzag por eslabón extra
-      zigFreq:  4.2,   // qué tan cerrado serpentea (rad/s)
+      // El zigzag es un DESVÍO ANGULAR alrededor de la recta del disparo, con
+      // tope. Así la pelota serpentea pero siempre avanza hacia donde la
+      // mandaron: da sensación de fuerza, no de pelota descontrolada.
+      //
+      // Antes era una aceleración lateral (zigAmp) perpendicular a la
+      // velocidad actual, y se realimentaba: medido, la pelota giraba 181° y
+      // volvía hacia atrás. Con un tope angular eso es imposible por
+      // construcción.
+      zigMaxAng: 0.44, // desvío máximo en radianes (~25°) a cada lado
+      zigAmp:    1,    // sólo marca que el zigzag está activo (ver nivel ≥ 2)
+      zigFreq:   9.0,  // qué tan rápido serpentea (rad/s)
     },
     bodyKick: 0.85,      // transferencia de golpe del cuerpo (a máxima velocidad de contacto)
     feetKick: 1.3,       // los pies pegan más fuerte (brake kick / flick)
