@@ -7,6 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
   :root {
     --bg: #0a0c18; --panel: #141830; --panel2: #1b2040; --line: #2a3157;
     --text: #e8ecff; --muted: #8a93be; --accent: #ffd54a; --ok: #6ee7a0;
@@ -15,13 +16,31 @@
     background: radial-gradient(ellipse at 50% -20%, #1a2145 0%, var(--bg) 60%);
     color: var(--text);
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-    min-height: 100vh; padding: 26px 18px 40px;
+    /* Pantalla completa: el contenido scrollea DENTRO de su panel, la
+       página nunca. */
+    height: 100%; overflow: hidden; padding: 18px 18px 14px;
     display: flex; flex-direction: column; align-items: center; gap: 16px;
   }
   h1 { font: 700 28px Georgia, serif; }
   h1 span { color: var(--accent); }
-  section { width: min(680px, 94vw); }
-  h2 { font: 700 17px Georgia, serif; color: var(--accent); margin-bottom: 8px; }
+  /* Las tres secciones van LADO A LADO: apiladas medían 974 px contra 640
+     de ventana. En horizontal se usa el ancho, que sobra, en vez del alto,
+     que falta. Cada panel scrollea por dentro si su lista es larga. */
+  .cols {
+    display: flex; gap: 14px; width: min(1180px, 96vw);
+    flex: 1 1 auto; min-height: 0; align-items: stretch;
+  }
+  section {
+    flex: 1 1 0; min-width: 0; min-height: 0;
+    display: flex; flex-direction: column;
+  }
+  section > div { overflow-y: auto; min-height: 0; flex: 1 1 auto; padding-right: 3px; }
+  @media (max-width: 820px) {
+    .cols { flex-direction: column; overflow-y: auto; }
+    section { flex: none; }
+  }
+  h2 { font: 700 clamp(13px, 2vh, 16px) Georgia, serif; color: var(--accent);
+       margin-bottom: 6px; flex: none; }
 
   .campeon-banner {
     background: linear-gradient(135deg, #3a2f10, #1a1608);
@@ -83,20 +102,22 @@
   <h1>🏆 <span>Trofeos</span></h1>
   <div id="campeonBanner" style="display:none" class="campeon-banner"></div>
 
-  <section>
-    <h2>Camino al Campeonato</h2>
-    <div class="torneo-box" id="torneoBox"></div>
-  </section>
+  <div class="cols">
+    <section>
+      <h2>Camino al Campeonato</h2>
+      <div class="torneo-box" id="torneoBox"></div>
+    </section>
 
-  <section>
-    <h2>Récords</h2>
-    <div class="grid-stats" id="stats"></div>
-  </section>
+    <section>
+      <h2>Récords</h2>
+      <div class="grid-stats" id="stats"></div>
+    </section>
 
-  <section>
-    <h2>Desafíos</h2>
-    <div id="challenges"></div>
-  </section>
+    <section>
+      <h2>Desafíos</h2>
+      <div id="challenges"></div>
+    </section>
+  </div>
 
   <a class="volver" href="index.html">← Volver al menú</a>
 

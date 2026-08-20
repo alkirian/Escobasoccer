@@ -6,6 +6,8 @@ import { Player } from './player.js';
 import { Renderer } from './render.js';
 import { ROSTER, CHARACTERS } from './characters.js';
 import { statsHTML } from './statsui.js';
+import { pasivaOf } from './stats_chars.js';
+import { isUnlocked, COSTS, coins, tryUnlock } from './roster.js';
 import {
   CHALLENGES, isDone, unlockedPalettes, selectedPalettes, selectPalette,
 } from './challenges.js';
@@ -32,21 +34,40 @@ const grid = document.getElementById('grid');
 const cards = [];
 
 for (const hero of ROSTER) {
+  const libre = isUnlocked(hero.id);
+  const pas = pasivaOf(hero.id);
   const card = document.createElement('div');
-  card.className = 'card' + (hero.id === selected ? ' on' : '');
+  card.className = 'card' + (hero.id === selected ? ' on' : '') + (libre ? '' : ' locked');
   card.innerHTML = `
     <canvas width="470" height="420"></canvas>
-    <div class="nom">${hero.nombre} <small>${hero.titulo}</small></div>
+    <div class="nom">${libre ? '' : '🔒 '}${hero.nombre} <small>${hero.titulo}</small></div>
     <div class="rol">${hero.rol}</div>
     <p class="bio">${hero.bio}</p>
     ${statsHTML(hero.id)}
+    ${pas ? `<div class="pasiva">${pas.icono} <b>${pas.nombre}</b> — ${pas.desc}</div>` : ''}
     <div class="pal-row"></div>
-    <div class="sel">✓ Seleccionado</div>`;
+    ${libre ? '<div class="sel">✓ Seleccionado</div>'
+            : `<button class="buy">Desbloquear por ${COSTS[hero.id] ?? '?'} 🪙</button>`}`;
   card.onclick = () => {
+    if (!isUnlocked(hero.id)) return;   // bloqueado: no se selecciona
     selected = hero.id;
     try { localStorage.setItem(CHAR_KEY, hero.id); } catch { /* sin storage */ }
     for (const c of cards) c.el.classList.toggle('on', c.hero.id === hero.id);
   };
+  // Compra desde la tarjeta: si alcanzan las monedas, se desbloquea en el
+  // acto (recarga para reconstruir la tarjeta ya libre).
+  const buyBtn = card.querySelector('.buy');
+  if (buyBtn) {
+    const cost = COSTS[hero.id] ?? Infinity;
+    if (coins() < cost) {
+      buyBtn.disabled = true;
+      buyBtn.textContent = `🔒 Te faltan ${cost - coins()} 🪙`;
+    }
+    buyBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (tryUnlock(hero.id)) location.reload();
+    };
+  }
   grid.appendChild(card);
 
   // Cada tarjeta tiene su propio jugador con física propia, así las poses
@@ -129,11 +150,15 @@ function frame(now) {
     while (acc > 0) { c.pl.rider.update(FIXED_DT, false, null); acc -= FIXED_DT; }
 
     // Render de la tarjeta
-    const ctx = c.ctx, W = c.canvas.width, H = c.canvas.height;
+    const ctx = c.ctx;
+    const W = c.canvas.width, H = c.canvas.height;
     ctx.clearRect(0, 0, W, H);
     ctx.save();
-    ctx.translate(W / 2, H / 2 + 26);
-    ctx.scale(1.55, 1.55);
+    // La escala sigue al alto disponible (420 era el alto fijo de antes), con
+    // tope para que en pantallas grandes no se vuelva gigante.
+    const k = Math.min(1.55, Math.max(0.85, (H / 420) * 1.55));
+    ctx.translate(W / 2, H / 2 + 26 * (k / 1.55));
+    ctx.scale(k, k);
     // sombra de apoyo
     ctx.globalAlpha = 0.3;
     ctx.fillStyle = '#05030c';
@@ -147,3 +172,97 @@ function frame(now) {
   }
 }
 requestAnimationFrame(frame);
+
+// ── Carrusel ───────────────────────────────────────────────────────────────
+// La galería era una grilla que crecía hacia abajo: con 10 personajes la
+// página medía 2655 px contra 910 de ventana, o sea 1745 px de scroll — y
+// empeoraba con cada personaje nuevo. Ahora es una fila que se desplaza, así
+// entra siempre en pantalla sin importar cuántos héroes haya.
+{
+  const wrap  = document.querySelector('.track-wrap');
+  const prevB = document.getElementById('prev');
+  const nextB = document.getElementById('next');
+  const dotsB = document.getElementById('dots');
+  let page = 0;
+
+  // Cuántas tarjetas entran enteras en el ancho visible.
+  const porPagina = () => {
+    const card = grid.querySelector('.card');
+    if (!card || !wrap) return 1;
+    const w = card.getBoundingClientRect().width;
+    const gap = parseFloat(getComputedStyle(grid).gap) || 0;
+    return Math.max(1, Math.floor((wrap.clientWidth + gap) / (w + gap)));
+  };
+  const paginas = () => Math.max(1, Math.ceil(cards.length / porPagina()));
+
+  function pintar() {
+    const per = porPagina();
+    const tot = paginas();
+    page = Math.min(page, tot - 1);
+    const card = grid.querySelector('.card');
+    const w = card ? card.getBoundingClientRect().width : 0;
+    const gap = parseFloat(getComputedStyle(grid).gap) || 0;
+    grid.style.transform = `translateX(${-page * per * (w + gap)}px)`;
+    if (prevB) prevB.disabled = page === 0;
+    if (nextB) nextB.disabled = page >= tot - 1;
+    // Puntos: uno por página, sólo si hay más de una.
+    if (dotsB) {
+      dotsB.innerHTML = '';
+      if (tot > 1) {
+        for (let i = 0; i < tot; i++) {
+          const d = document.createElement('div');
+          d.className = 'dot' + (i === page ? ' on' : '');
+          dotsB.appendChild(d);
+        }
+      }
+    }
+  }
+  const ir = (d) => { page = Math.max(0, Math.min(paginas() - 1, page + d)); pintar(); };
+
+  prevB?.addEventListener('click', () => ir(-1));
+  nextB?.addEventListener('click', () => ir(1));
+  // Teclado: flechas para moverse sin tocar el mouse.
+  addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') ir(1);
+    else if (e.key === 'ArrowLeft') ir(-1);
+  });
+  // Rueda del mouse: el gesto natural en una galería horizontal.
+  wrap?.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) < 12) return;
+    e.preventDefault();
+    ir(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
+
+  // Arrastre táctil.
+  let x0 = null;
+  wrap?.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  wrap?.addEventListener('touchend', (e) => {
+    if (x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 45) ir(dx < 0 ? 1 : -1);
+    x0 = null;
+  });
+
+  // Arrancar mostrando la página donde está el personaje elegido, para que
+  // al entrar se vea el que estás usando y no siempre el primero.
+  const idx = cards.findIndex((c) => c.hero.id === selected);
+  if (idx >= 0) page = Math.floor(idx / porPagina());
+
+  // El canvas de cada tarjeta ya no tiene alto fijo: lo estira el carrusel
+  // según la pantalla. Hay que igualar el BUFFER al tamaño real o el dibujo
+  // sale deformado (medido: buffer 470x420 contra 204x246 en pantalla, o sea
+  // relación 1.12 contra 0.83). Se hace acá —y en cada resize— y no dentro
+  // del bucle de animación, para que valga desde el primer frame.
+  function ajustarCanvas() {
+    for (const c of cards) {
+      const w = Math.round(c.canvas.clientWidth), h = Math.round(c.canvas.clientHeight);
+      if (w > 0 && h > 0 && (c.canvas.width !== w || c.canvas.height !== h)) {
+        c.canvas.width = w; c.canvas.height = h;
+      }
+    }
+  }
+
+  addEventListener('resize', () => { pintar(); ajustarCanvas(); });
+  pintar();
+  ajustarCanvas();
+}
