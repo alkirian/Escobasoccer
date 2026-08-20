@@ -178,9 +178,46 @@
   </footer>
 
   <script type="module">
-    import { applyI18n } from './src/i18n/i18n.js';
+    import { applyI18n, t } from './src/i18n/i18n.js';
+    import { BUILD_CONFIG } from './src/build_config.js';
+    import { isFirstEver } from './src/stats.js';
     applyI18n();
+
+    // ── Modo portal (CrazyGames) ─────────────────────────────────────────
+    // Antes del primer partido de la vida, el menú entero es ruido: un solo
+    // botón PLAY que lleva directo al gameplay (main.js ya fuerza 90 s en
+    // fácil para el primer partido — FIRST_EVER). Con el primer partido
+    // jugado, isFirstEver() da false y el menú completo aparece solo.
+    if (BUILD_CONFIG.portalMode && isFirstEver()) {
+      document.querySelector('nav').style.display = 'none';
+      const big = document.createElement('a');
+      big.href = 'play.html?mode=1v1';
+      big.id = 'quickplay';
+      big.innerHTML = `<span class="qp-main">${t('menu.quickplay')}</span>` +
+                      `<span class="qp-sub">${t('menu.quickplay.sub')}</span>`;
+      document.querySelector('nav').before(big);
+    }
+
+    // ── Enlaces externos: fuera en el build de portal ────────────────────
+    // CrazyGames no permite cross-promotion (GitHub, otras webs). El editor
+    // de héroes tampoco viaja en el build del portal.
+    if (!BUILD_CONFIG.externalLinks) {
+      document.querySelectorAll('a[href^="http"], a[href="veditor.html"]')
+        .forEach((a) => a.remove());
+    }
   </script>
+  <style>
+    #quickplay {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      padding: 22px 64px; border-radius: 18px; text-decoration: none;
+      background: linear-gradient(170deg, #ffe98a 0%, #ffd54a 45%, #ffb52e 100%);
+      color: #201700; box-shadow: 0 6px 30px rgba(255,170,40,.45);
+      transition: transform .15s;
+    }
+    #quickplay:hover { transform: translateY(-2px) scale(1.02); }
+    #quickplay .qp-main { font: 800 30px Georgia, serif; letter-spacing: .04em; }
+    #quickplay .qp-sub { font: 600 13px system-ui; opacity: .75; }
+  </style>
   <script>
     // Estrellitas de fondo: livianas, sin canvas ni loop propio
     for (let i = 0; i < 26; i++) {
@@ -193,10 +230,13 @@
         `animation-delay:${-Math.random() * 6}s;`;
       document.body.appendChild(s);
     }
-    // PWA
-    if ('serviceWorker' in navigator) {
-      addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
-    }
+    // PWA — solo en standalone. El build de portal (CrazyGames) no debe
+    // registrar service worker ni cachear nada por su cuenta.
+    import('./src/build_config.js').then(({ BUILD_CONFIG }) => {
+      if (BUILD_CONFIG.pwa && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      }
+    });
   </script>
 </body>
 </html>

@@ -47,6 +47,21 @@ export class Sound {
     return g;
   }
 
+  // Silenciar al perder el foco de la pestaña (y volver al recuperarlo).
+  // Baja el master en vez de suspender el contexto: reanudar un contexto
+  // suspendido exige un gesto del usuario, bajar una ganancia no.
+  duck(on) {
+    if (!this.master) return;
+    this.master.gain.setTargetAtTime(on ? 0 : 0.5, this.ctx.currentTime, 0.05);
+  }
+
+  // Los navegadores suspenden el AudioContext hasta un gesto permitido (o al
+  // volver de otra pestaña en móvil). Se llama SOLO como respuesta a una
+  // interacción real del jugador — nunca de forma automática.
+  resumeIfSuspended() {
+    if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
+  }
+
   setThrust(p) {
     if (!this.ctx) return;
     this.thrustGain.gain.setTargetAtTime(p * 0.22, this.ctx.currentTime, 0.08);

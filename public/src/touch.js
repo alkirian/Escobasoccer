@@ -62,6 +62,7 @@ export class TouchControls {
       this.active = true;
       if (this.onFirstTouch) { this.onFirstTouch(); this.onFirstTouch = null; }
     }
+    this.onGesture?.();
     this._justTapped = true;
     // Dónde se tocó: la pantalla de fin de partido tiene BOTONES, y en táctil
     // no hay hover que diga cuál. Sin la posición, un toque en cualquier lado

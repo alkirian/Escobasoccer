@@ -451,9 +451,11 @@
     // PWA: con el service worker el juego queda jugable offline y se puede
     // "Agregar a pantalla de inicio". Red primero: nunca sirve archivos viejos
     // teniendo conexion.
-    if ('serviceWorker' in navigator) {
-      addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
-    }
+    import('./src/build_config.js').then(({ BUILD_CONFIG }) => {
+      if (BUILD_CONFIG.pwa && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      }
+    });
   </script>
 </body>
 </html>

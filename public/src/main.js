@@ -194,6 +194,35 @@ const sound = new Sound();
 sound.muted = MUTE;              // opción "Sonido" del menú
 input.firstGesture = () => sound.init();
 touch.onFirstTouch = () => sound.init();
+// Cada gesto posterior reanuda el AudioContext si el navegador lo suspendió
+// (cambio de pestaña, autoplay policy). Fase 16: solo tras interacción.
+input.onGesture = () => sound.resumeIfSuspended();
+touch.onGesture = () => sound.resumeIfSuspended();
+
+// ── Ciclo de vida del navegador (Fase 15) ─────────────────────────────────
+// Dentro de un iframe de portal, perder el foco es rutina (overlays, cambiar
+// de pestaña). Al perderlo: soltar TODO input (nada de acelerador pegado),
+// pausar el partido si estaba en juego, y silenciar el audio. Al volver: el
+// audio vuelve solo; la pausa la levanta el jugador (nunca reanudar solo un
+// partido que el jugador no está mirando).
+function _onLostFocus() {
+  input.lmb = input.rmb = input.tuck = input.boost = false;
+  input.held.clear();
+  if (!world.paused && match.state === 'play' && !BOTS && !PRACTICE) {
+    world.paused = true;
+  }
+  sound.duck(true);
+  Platform.pause();
+}
+function _onGainFocus() {
+  sound.duck(false);
+  Platform.resume();
+}
+addEventListener('blur', _onLostFocus);
+addEventListener('focus', _onGainFocus);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) _onLostFocus(); else _onGainFocus();
+});
 
 // Con los orbes desactivados no se crean los campos: no aparecen, no se
 // recogen y no hay energía de boost que juntar.
@@ -974,6 +1003,10 @@ function frame(now) {
   // antes de que arranque la succión y la carga del portal.
   if (match.state === 'goal' && prevMatchState !== 'goal') _hitstopT = 0.07;
 
+  // Señales de gameplay a la plataforma (Fase 6). Para Basic Launch son
+  // no-ops; con el SDK completo alimentan las métricas del portal.
+  if (match.state === 'play' && prevMatchState !== 'play') Platform.gameplayStart();
+  if (match.state === 'end' && prevMatchState !== 'end') Platform.gameplayStop();
   prevMatchState = match.state;
 
   // Dash: solo registrar si el juego está corriendo (no pausado, no fin) y ya
