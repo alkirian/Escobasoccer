@@ -1,11 +1,11 @@
 # CrazyGames Release Report — Escoba Voladora (Basic Launch)
 
 ```
-Commit:   a47d0e7 (rama feat/crazygames-release)
+Commit:   (el último de la rama feat/crazygames-release)
 Version:  0.1.0
 Fecha:    2026-08-20
 
-Tamaño ZIP:        0.77 MB (comprimido)
+Tamaño ZIP:        2.17 MB (comprimido, DEFLATE; verificado con testzip)
 Tamaño extraído:   2.64 MB
 Cantidad archivos: 49
 Archivo más pesado: 1 mapa.jpeg (1.94 MB)
@@ -140,6 +140,17 @@ Touch — left-side joystick to aim, GAS and HIT buttons,
    `dist/EscobaVoladora-CrazyGames.zip` → QA Tool (partido completo,
    revancha, pausa, cambio de pestaña, inglés, español, 1v1, 2v2,
    torneo) → Submit como Basic Launch.
+
+## Bug atrapado en el propio pipeline
+
+La primera versión del build generaba el ZIP con `tar -a -cf x.zip`: el
+`tar` que trae Windows es GNU tar, que ignora la extensión y produce un
+**tar disfrazado de .zip** — el portal lo habría rechazado al subirlo. Se
+detectó al verificar el archivo con `zipfile` de Python ("File is not a
+zip file") y se reemplazó por un escritor ZIP propio en el script de
+build (Node puro, DEFLATE de zlib, separadores '/', CRCs verificados con
+testzip). Moraleja aplicada: el pipeline valida el ZIP real, no confía
+en la extensión.
 
 ## Known issues
 

@@ -14,8 +14,8 @@
 // string en runtime (la imagen del mapa, que vive en CFG.arena.src).
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { deflateRawSync } from 'node:zlib';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUB = path.join(ROOT, 'public');
@@ -135,16 +135,15 @@ async function main() {
   // 3) La config del portal pisa a la standalone
   await fs.writeFile(path.join(OUT, 'src', 'build_config.js'), PORTAL_CONFIG);
 
-  // 4) ZIP con index.html en la raíz (bsdtar de Windows/macOS/Linux crea zip
-  //    real con separadores '/'). Se listan las entradas de primer nivel para
-  //    no envolver nada en carpetas ni arrastrar el propio zip.
-  const top = await fs.readdir(OUT);
+  // 4) ZIP con index.html en la raíz. Se escribe el formato ZIP a mano
+  //    (cabeceras locales + directorio central + EOCD, DEFLATE de zlib):
+  //    el `tar` que trae Windows es GNU tar y NO sabe crear zips — con
+  //    `-a -cf x.zip` producía un tar disfrazado que el portal rechazaría
+  //    (descubierto porque zipfile de Python lo declaró "not a zip file").
+  //    Cero dependencias y separadores '/' garantizados.
   const zipTmp = path.join(ROOT, 'dist', ZIP_NAME);
   await fs.rm(zipTmp, { force: true });
-  // Rutas RELATIVAS a cwd: bsdtar interpreta "C:\..." como host remoto.
-  execFileSync('tar',
-    ['-a', '-cf', path.posix.join('dist', ZIP_NAME), '-C', 'dist/crazygames', ...top],
-    { stdio: 'inherit', cwd: ROOT });
+  await writeZip(zipTmp, OUT, [...seen].sort());
   // El "resultado final" pedido vive en dist/crazygames/; se copia también a
   // dist/ porque el validador y el pipeline lo esperan ahí.
   await fs.copyFile(zipTmp, path.join(OUT, ZIP_NAME));
@@ -162,6 +161,92 @@ async function main() {
   archivo más pesado         ${biggest[0]} (${mb(biggest[1])})
   dist/${ZIP_NAME}
   dist/crazygames/${ZIP_NAME}`);
+}
+
+// ── Escritor ZIP mínimo ────────────────────────────────────────────────────
+// Formato clásico (sin zip64: sobra hasta 4 GB). Cada entrada va con método
+// DEFLATE, nombre con '/', y sin carpeta envolvente: `entries` son rutas
+// relativas a `baseDir` y quedan tal cual en la raíz del ZIP.
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function dosDateTime(d = new Date()) {
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  return { time, date };
+}
+
+async function writeZip(zipPath, baseDir, entries) {
+  const { time, date } = dosDateTime();
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+
+  for (const rel of entries) {
+    const name = Buffer.from(rel, 'utf8');       // ya viene con '/'
+    const data = await fs.readFile(path.join(baseDir, rel));
+    const crc = crc32(data);
+    const comp = deflateRawSync(data, { level: 9 });
+    // Si deflate no achica (el jpeg), STORE deja el zip más liviano.
+    const useDeflate = comp.length < data.length;
+    const body = useDeflate ? comp : data;
+    const method = useDeflate ? 8 : 0;
+
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);                  // versión mínima
+    local.writeUInt16LE(0x0800, 6);              // flags: nombres UTF-8
+    local.writeUInt16LE(method, 8);
+    local.writeUInt16LE(time, 10);
+    local.writeUInt16LE(date, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(0, 28);                  // sin extra
+    locals.push(local, name, body);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);                // hecho por
+    central.writeUInt16LE(20, 6);                // requiere
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(method, 10);
+    central.writeUInt16LE(time, 12);
+    central.writeUInt16LE(date, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(body.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    // extra/comment/disco/attrs internos: 0
+    central.writeUInt32LE(offset, 42);
+    centrals.push(central, name);
+
+    offset += 30 + name.length + body.length;
+  }
+
+  const cd = Buffer.concat(centrals);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(cd.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  await fs.writeFile(zipPath, Buffer.concat([...locals, cd, eocd]));
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

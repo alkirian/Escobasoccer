@@ -192,11 +192,23 @@ async function main() {
   if (gameFiles.length > 1500) errors.push(`${gameFiles.length} archivos — supera los 1500`);
   else ok.push(`${gameFiles.length} archivos (límite 1500)`);
 
-  // ── ZIP presente en ambas rutas pedidas ───────────────────────────────
+  // ── ZIP presente en ambas rutas pedidas, y que sea un ZIP DE VERDAD ──
+  // (el tar de Windows es GNU tar: con `-a -cf x.zip` entregaba un tar
+  // disfrazado que el portal rechazaría — de ahí esta firma.)
+  let zipOk = true;
   for (const z of [path.join(ROOT, 'dist', ZIP), path.join(DIST, ZIP)]) {
-    try { await fs.access(z); } catch { errors.push(`Falta ${norm(path.relative(ROOT, z))}`); }
+    try {
+      const fh = await fs.open(z, 'r');
+      const buf = Buffer.alloc(4);
+      await fh.read(buf, 0, 4, 0);
+      await fh.close();
+      if (buf.readUInt32LE(0) !== 0x04034b50) {
+        errors.push(`${norm(path.relative(ROOT, z))} no es un ZIP (firma ${buf.toString('hex')})`);
+        zipOk = false;
+      }
+    } catch { errors.push(`Falta ${norm(path.relative(ROOT, z))}`); zipOk = false; }
   }
-  if (!errors.some((e) => e.startsWith('Falta') && e.includes('.zip'))) ok.push('ZIP generado en dist/ y dist/crazygames/');
+  if (zipOk) ok.push('ZIP real (firma PK) en dist/ y dist/crazygames/');
 
   report();
 }
