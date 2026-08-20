@@ -237,8 +237,10 @@ export class Rider {
     // FUERZA (stat): multiplica la potencia final del latigazo. El jinete
     // lee el mod de su escoba, que es donde lo dejó el Player.
     const fue = this.broom.mods ? this.broom.mods.shot : 1;
+    // AURA DE FUEGO: mientras dura, cada latigazo sale demoledor.
+    const aura = this.broom.aura ? CFG.runner.auraShot : 1;
     return (1 + W.chargeBonus * chargeF + W.energyBonus * energyF
-      + (this.shotFire ? W.fireBonus : 0)) * fue;
+      + (this.shotFire ? W.fireBonus : 0)) * fue * aura;
   }
 
   // Al soltar, si la pelota está en rango el latigazo se vuelve un GOLPE

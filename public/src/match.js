@@ -165,12 +165,16 @@ export class Match {
           this.state = 'play';
           world.sound.beep(true);
           world.ball.frozen = false;
+          // Segundos desde el saque. Lo usan los bots para no salir los dos
+          // corriendo al centro en el arranque (ver bot.js, reparto de roles).
+          this.playT = 0;
           // El reloj del bloqueo arranca con el pitazo, no antes.
           this.dashLockT = CFG.match.dashLockout;
         }
         break;
       }
       case 'play': {
+        this.playT = (this.playT ?? 0) + dt;
         if (this.dashLockT > 0) this.dashLockT = Math.max(0, this.dashLockT - dt);
         // En práctica el reloj no corre: se juega hasta que el jugador se vaya.
         // Por goles tampoco: el partido lo termina el marcador, no el tiempo.

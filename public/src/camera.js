@@ -77,20 +77,54 @@ export class Camera {
       this.y = lerp(f ? f.broom.pos.y : 0, 0, eased);
     } else {
       this.introT = null;
-      // Cámara fija, centrada en la ZONA JUGABLE (no en el centro de la
-      // imagen). La cancha no está centrada verticalmente en el mapa: va de
-      // arena.T a arena.B, cuyo punto medio está bastante por encima de y=0.
-      // Mirando a 0 se recortaba techo de cancha mientras sobraba piso pintado.
+      // Encuadre: el punto medio entre el jugador y la pelota, que es donde
+      // está la jugada. Antes esto era fijo en el centro de la cancha, y por
+      // eso el micro-zoom de los cañonazos se sentía mal: apretaba hacia el
+      // MEDIO mientras la jugada pasaba contra el arco. Ahora el zoom se cierra
+      // sobre la acción, no lejos de ella.
+      //
+      // La cancha no está centrada verticalmente en el mapa (va de arena.T a
+      // arena.B), así que el punto de reposo es ese medio, no y=0.
       const cy = (CFG.arena.T + CFG.arena.B) / 2;
+      let tx = 0, ty = cy;
+      if (focus && ball) {
+        // Sesgo hacia la pelota: es lo que el ojo sigue. Pero sin llegar a
+        // abandonar al jugador, que necesita verse para pilotear.
+        //
+        // MEDIDO: en cualquier pantalla normal (1366→2560 de ancho) el
+        // encuadre ya muestra la cancha entera, así que el recorte de más
+        // abajo deja el paneo en ~14 px y esto casi no se mueve. Se calcula
+        // igual porque es correcto y porque en ventanas chicas (o si algún
+        // día se acerca el zoom base) sí acompaña la jugada.
+        tx = focus.x * 0.42 + ball.x * 0.58;
+        ty = focus.y * 0.42 + ball.y * 0.58;
+        const A = CFG.arena;
+        const panX = (A.R - A.L) * 0.16, panY = (A.B - A.T) * 0.12;
+        tx = clamp(tx, -panX, panX);
+        ty = clamp(ty, cy - panY, cy + panY);
+      }
       this.zoom = damp(this.zoom, base, 4, dt);
-      this.x = damp(this.x, 0, 4, dt);
-      this.y = damp(this.y, cy, 4, dt);
+      this.x = damp(this.x, tx, 3.2, dt);
+      this.y = damp(this.y, ty, 3.2, dt);
     }
 
-    // Empuje sutil de velocidad: acerca un pelín cuando se vuela muy rápido.
-    // Es un acento, nunca compromete la lectura del partido.
+    // Empuje de velocidad: acercaba un pelín al volar rápido o al reventar la
+    // pelota. PROBLEMA: como el encuadre está fijo (no puede panear, ver
+    // arriba), ese zoom se cierra sobre el CENTRO DE LA PANTALLA — y si la
+    // jugada está contra un arco, aprieta justo lejos de la acción. Por eso
+    // se sentía incómodo en los remates al arco, que es cuando más se dispara.
+    //
+    // Ahora sólo se aplica si la jugada está razonablemente centrada: cerca de
+    // un arco el acento se apaga y el encuadre queda quieto y legible.
     if (this.speedPunch > 0.001) {
-      this.zoom *= 1 + this.speedPunch * 0.045;
+      let permiso = 1;
+      if (ball) {
+        // 0 pegado al arco, 1 en la mitad de la cancha.
+        const A = CFG.arena;
+        const fx = Math.min(1, Math.abs(ball.x) / ((A.R - A.L) * 0.32));
+        permiso = 1 - fx * fx;
+      }
+      this.zoom *= 1 + this.speedPunch * 0.028 * permiso;
       this.speedPunch = damp(this.speedPunch, 0, 5, dt);
     }
 

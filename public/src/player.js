@@ -68,6 +68,10 @@ export class Player {
       this.unlimitedT -= dt;
       this.energy = B.max;      // el frasco se mantiene lleno solo
     }
+    // El aura vive en la escoba porque es quien la leen el jinete (potencia
+    // del latigazo) y la propulsión. Un solo punto de verdad: si el timer se
+    // agota, el aura se apaga en el mismo frame.
+    this.broom.aura = this.unlimitedT > 0;
     const can = this.energy > 0 && (this.broom.boosting || this.energy >= B.minToStart);
     const active = wantBoost && can && this.control.thrust;
     // MAGIA (stat): el mod viene invertido (más magia = menos gasto), así

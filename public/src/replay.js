@@ -100,6 +100,11 @@ export class ReplayRecorder {
         team: pl.team,
         index: pl.index,
         isHuman: pl === world.playerA,
+        // Sin esto la repetición dibujaba a TODOS con el mago por defecto:
+        // el stub que arma render._replayPlayer no tenía characterId, así que
+        // el buscador de personaje caía al fallback. Se ve raro justo en el
+        // momento que más se mira.
+        characterId: pl.characterId,
         broom: {
           x: b.pos.x, y: b.pos.y, angle: b.angle,
           thrustPower: b.thrustPower, boostPower: b.boostPower,

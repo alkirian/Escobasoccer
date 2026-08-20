@@ -274,6 +274,9 @@ const world = {
   // mouse — mismo patrón que menu.js pero compartiendo el world en vez de
   // tener su propia clase, porque esto vive adentro del partido.
   pauseMenu: { hot: null, rects: [], closeBlockedT: 0 },
+  // Fin de partido: "Jugar de nuevo" / "Volver al menú". Mismo patrón que la
+  // pausa — render.js llena `rects` y acá se resuelve el click.
+  endMenu: { hot: null, rects: [] },
   // Pantalla "cómo se juega": solo como referencia desde el menú de pausa.
   // El aprendizaje real lo lleva el coach, jugando.
   controlsScreen: { open: false, hot: null, rects: [] },
@@ -447,8 +450,10 @@ function step(dt) {
 
     // Propulsión con multiplicadores
     if (!hovering && !frozen) {
-      // VELOCIDAD (stat) multiplica la propulsión manual del jugador
-      const mul = (boosting ? 1.4 : 0.65) * playerA.mods.thrust;
+      // VELOCIDAD (stat) multiplica la propulsión manual del jugador, y el
+      // aura de fuego encima: con el orbe fugitivo atrapado se vuela distinto.
+      const mul = (boosting ? 1.4 : 0.65) * playerA.mods.thrust
+        * (playerA.unlimited ? CFG.runner.auraThrust : 1);
       const d = b.dir();
       b.vel.x += d.x * CFG.broom.thrust * mul * dt;
       b.vel.y += d.y * CFG.broom.thrust * mul * dt;
@@ -881,6 +886,31 @@ function frame(now) {
         && input.cursor.y >= r.y && input.cursor.y <= r.y + r.h) { pm.hot = r.id; break; }
     }
     if (input.pressed('lmb') && pm.hot) _pauseAction(pm.hot);
+  } else if (match.state === 'end' && !TORNEO && !world.torneoResult) {
+    // Partido suelto: dos botones. "Jugar de nuevo" vuelve a la pantalla de
+    // preparar partido CON LOS MISMOS PARÁMETROS (modo, duración/goles,
+    // dificultad) para que solo haya que elegir personaje y entrar directo.
+    const em = world.endMenu;
+    em.hot = null;
+    for (const r of em.rects) {
+      if (input.cursor.x >= r.x && input.cursor.x <= r.x + r.w
+        && input.cursor.y >= r.y && input.cursor.y <= r.y + r.h) { em.hot = r.id; break; }
+    }
+    const tap = touch.consumeTap();
+    if (input.pressed('lmb') || tap) {
+      // En táctil no hay hover: el toque decide por posición.
+      let id = em.hot;
+      if (tap && !id) {
+        const t = touch.tapPos;
+        for (const r of em.rects) {
+          if (t && t.x >= r.x && t.x <= r.x + r.w && t.y >= r.y && t.y <= r.y + r.h) { id = r.id; break; }
+        }
+      }
+      if (id === 'menu') location.href = 'index.html';
+      else if (id === 'revancha') location.href = `jugar.html${location.search}`;
+    } else if (input.pressed('Enter')) {
+      location.href = `jugar.html${location.search}`;   // ENTER = revancha
+    }
   } else if (match.state === 'end' && (input.pressed('lmb') || input.pressed('Enter') || touch.consumeTap())) {
     if (TORNEO && world.torneoResult) {
       // El torneo no repite el mismo partido: navega a lo que sigue —
@@ -1001,8 +1031,10 @@ function frame(now) {
       match.update(give, world);
     }
 
-    // Cámara fija: siempre centrada, sin seguir al jugador ni zoom por velocidad
-    camera.update(dtReal, null, null);
+    // La cámara acompaña la jugada (medio entre jugador y pelota, con paneo
+    // acotado). Antes iba fija en el centro y el micro-zoom de los cañonazos
+    // cerraba sobre el medio de la cancha mientras el remate pasaba en el arco.
+    camera.update(dtReal, playerA.broom.pos, ball.pos);
 
     // Grabar para la repetición. Solo con el punto en juego: durante la cuenta
     // regresiva y el festejo no pasa nada que valga la pena volver a ver, y
@@ -1068,6 +1100,9 @@ window.__stepOnce = (dt = FIXED_DT) => {
 // por FRAME y a step() varias veces por frame, y meter las dos cosas en el
 // mismo hook hacía imposible medir duraciones reales.
 window.__stepPhys = (dt = FIXED_DT) => step(dt);
+// Los bots, para poder medir su comportamiento desde un test (qué modo eligen,
+// si alguien cubre el arco, cuántos pases dan).
+window.__bots = bots;
 window.__sim = (seconds = 10) => {
   // Simula el partido sin render (validación de físicas y bots)
   const steps = Math.floor(seconds / FIXED_DT);

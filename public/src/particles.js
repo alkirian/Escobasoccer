@@ -169,11 +169,30 @@ export class Particles {
   }
 
   // Aura mientras dura la energía ilimitada: chispitas doradas subiendo
+  // Aura de fuego del orbe fugitivo: el mago va ENVUELTO en llamas, no
+  // salpicado de chispitas doradas como antes. Tres capas para que se lea
+  // como fuego y no como confeti: núcleo blanco caliente, cuerpo naranja y
+  // pavesas que suben lento. La gravedad negativa hace que todo trepe.
   unlimitedAura(x, y) {
-    if (Math.random() > 0.35) return;
-    this.spawn(x + rand(-34, 34), y + rand(-30, 30),
-      rand(-40, 40), rand(-120, -40), rand(0.3, 0.6), rand(2, 5),
-      Math.random() < 0.5 ? '#ffd76a' : '#fff6d8', -60);
+    // Cuerpo de la llama: lo que de verdad "envuelve" al personaje.
+    for (let i = 0; i < 2; i++) {
+      const a = rand(0, 6.283), r = rand(0, 40);
+      this.spawn(x + Math.cos(a) * r, y + Math.sin(a) * r * 0.85,
+        rand(-55, 55), rand(-210, -110), rand(0.28, 0.5), rand(3, 7),
+        Math.random() < 0.5 ? '#ff7a18' : '#ffb038', -320);
+    }
+    // Núcleo caliente: pocas, chicas y muy claras. Dan el punto de brillo.
+    if (Math.random() < 0.55) {
+      this.spawn(x + rand(-20, 20), y + rand(-20, 16),
+        rand(-30, 30), rand(-150, -70), rand(0.2, 0.34), rand(2, 4),
+        Math.random() < 0.5 ? '#fff3c4' : '#ffd76a', -260);
+    }
+    // Pavesas: suben más alto y viven más, para que quede rastro de fuego.
+    if (Math.random() < 0.3) {
+      this.spawn(x + rand(-30, 30), y + rand(-24, 20),
+        rand(-70, 70), rand(-260, -150), rand(0.5, 0.85), rand(1.5, 3),
+        '#ff5a10', -420);
+    }
   }
 
   // Esfuerzo / raspado al quedar clavado en una superficie

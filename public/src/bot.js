@@ -155,40 +155,93 @@ export class Bot {
 
     // --- Reparto de roles (2v2) ---
     // Sin esto los dos compañeros persiguen la misma pelota y se estorban.
-    // El que está más cerca va a buscarla; el otro cubre, salvo que sea el
-    // 'support' y la pelota esté claramente lejos de su zona.
+    //
+    // El reparto es DINÁMICO, no por etiqueta fija: el que está mejor parado
+    // para la pelota ataca y el otro cubre, y los papeles se intercambian
+    // solos durante el partido. Antes `role` era una etiqueta fija y el
+    // 'striker' NUNCA cubría — si el 'support' se iba arriba, el arco quedaba
+    // solo. Ahora siempre hay alguien atrás: es la queja principal.
     let hangBack = false;
+    this.mate = null;
     // Mordrak defensor: con la pelota bien metida en campo rival no la
     // persigue — se queda cubriendo y espera el contragolpe. Sale de la
     // cueva apenas la pelota cruza al medio.
     if (persona.defensor && ball.pos.x * this.ownSide < -halfW * 0.2) {
       hangBack = true;
     }
-    if (world.players && world.players.length > 2) {
-      const mates = world.players.filter(
-        (p) => p !== this.player && p.team === this.player.team);
-      const closest = mates.every(
-        (p) => Math.hypot(ball.pos.x - p.broom.pos.x, ball.pos.y - p.broom.pos.y) > distToBall);
-      // El apoyo cede la pelota al compañero y se queda cubriendo el arco
-      hangBack = this.role === 'support' && !closest;
+    const mates = (world.players || []).filter(
+      (p) => p !== this.player && p.team === this.player.team);
+    if (mates.length) {
+      this.mate = mates[0];
+      // "Mejor parado" no es sólo distancia: pesa el estar del lado correcto
+      // de la pelota. Un compañero pegado a la pelota pero del lado del arco
+      // propio está PEOR parado que uno un poco más lejos pero bien ubicado,
+      // porque el primero, si va, la empuja hacia adentro.
+      const cost = (p) => {
+        const d = Math.hypot(ball.pos.x - p.broom.pos.x, ball.pos.y - p.broom.pos.y);
+        const behind = (p.broom.pos.x - ball.pos.x) * this.ownSide > 0;
+        return d + (behind ? 0 : 420);   // penalización por estar mal parado
+      };
+      const myCost = distToBall + (meBehindBall ? 0 : 420);
+      const iAmBest = mates.every((p) => cost(p) > myCost);
+      // El que no va a la pelota cubre. Siempre uno de los dos: nunca los dos
+      // arriba, nunca los dos atrás.
+      hangBack = !iAmBest;
+      this.attacking = iAmBest;
+
+      // ...salvo emergencia: si la pelota está entrando al arco propio, van
+      // los dos. Que el compañero "tenga el rol de atacante" no puede impedir
+      // que ayude cuando se está por comer un gol.
+      if (ballOnDoorstep) hangBack = false;
+
+      // SAQUE: los primeros segundos el que no ataca se queda atrás sí o sí.
+      // En el saque la pelota está en el centro, a igual distancia de todos, y
+      // el desempate por costo puede dar vuelta entre frames — se veía como
+      // los dos saliendo disparados al medio y chocándose entre ellos.
+      if ((world.match?.playT ?? 99) < 2.2 && !iAmBest) hangBack = true;
     }
 
     if (hangBack) {
-      // CUBRIR: quedarse entre la pelota y el arco propio, sin encimar
+      // CUBRIR / ATAJAR. Dos comportamientos según dónde esté la pelota:
+      //
+      //  a) La pelota viene o está cerca → ARQUERO: pararse sobre la línea
+      //     que une la pelota con el centro del arco, a media distancia. Ahí
+      //     es donde hay que estar para tapar, y no "cerca del arco" a secas.
+      //     Antes se interpolaba pelota↔arco sin mirar la trayectoria, así que
+      //     la pelota le pasaba al lado y entraba igual.
+      //  b) La pelota está lejos → esperar en posición adelantada, listo para
+      //     recibir un pase o salir de contra.
       this.mode = 'cover';
       this.shotAim = null;
-      // Interpolar hacia el arco propio en LOS DOS ejes. La Y iba hacia 0
-      // absoluto en vez de hacia `ownPortal.y` (portalY = 97.28), así que el
-      // cubridor se paraba ~97 unidades por encima del arco que defendía —
-      // un error sistemático, siempre en la misma dirección.
-      this.desired.x = ownPortal.x * 0.55 + bp.x * 0.45;
-      this.desired.y = ownPortal.y * 0.55 + bp.y * 0.45;
+
+      const dBallOwn = Math.hypot(bp.x - ownPortal.x, bp.y - ownPortal.y);
+      const amenaza = dBallOwn < halfW * 1.15 || towardOwn;
+
+      if (amenaza) {
+        // Colocarse EN LA LÍNEA de tiro, del lado del arco. Es lo que hace un
+        // arquero: achicar el ángulo. Cuanto más cerca está la pelota, más
+        // sale a achicar; de lejos se queda cerca de la línea.
+        let lx = bp.x - ownPortal.x, ly = bp.y - ownPortal.y;
+        const ll = Math.hypot(lx, ly) || 1;
+        lx /= ll; ly /= ll;
+        const salida = clamp(dBallOwn * 0.42, 150, 460);
+        this.desired.x = ownPortal.x + lx * salida;
+        this.desired.y = ownPortal.y + ly * salida;
+        this.wantsBoost = dBallOwn < halfW * 0.7;   // apurarse si es urgente
+      } else {
+        // Posición de espera: adelantado respecto del arco, listo para recibir.
+        this.desired.x = ownPortal.x * 0.62 + bp.x * 0.38;
+        this.desired.y = ownPortal.y * 0.62 + bp.y * 0.38;
+        this.wantsBoost = false;
+      }
+
       const toT = Math.hypot(this.desired.x - me.pos.x, this.desired.y - me.pos.y);
-      this.thrust = toT > 130;
+      this.thrust = toT > 110;
       this.brake = toT < 90 && speed > 380;
       this.tuck = false;
-      this.wantsBoost = false;
-      const n = 45 * this.diff.aim;
+      // Al arquero se le pide MENOS error que a un atacante: un arquero que
+      // falla por ruido es un arquero que no ataja, y eso se lee como bot tonto.
+      const n = (amenaza ? 22 : 45) * this.diff.aim;
       this.noise.x = rand(-n, n);
       this.noise.y = rand(-n, n);
       return;
@@ -206,7 +259,14 @@ export class Bot {
       const bestOfTeam = mates.every(
         (p) => Math.hypot(runner.x - p.broom.pos.x, runner.y - p.broom.pos.y) > dRun);
       const emergency = towardOwn && ballNearOwn && !meBehindBall;
-      if (bestOfTeam && !emergency && dRun < CFG.runner.chaseRange * (persona.chaseMul ?? 1)) {
+      // NO abandonar una ocasión de gol por ir a buscar el orbe. Si tengo la
+      // pelota cerca y estoy bien parado para empujarla al arco rival, eso
+      // vale más que cualquier premio: un bot que sale corriendo detrás del
+      // orbe teniendo el gol servido se ve directamente roto.
+      const chanceDeGol = distToBall < 520 && alignment < -0.1
+        && Math.hypot(bp.x - scorePortal.x, bp.y - scorePortal.y) < halfW * 1.25;
+      if (bestOfTeam && !emergency && !chanceDeGol
+          && dRun < CFG.runner.chaseRange * (persona.chaseMul ?? 1)) {
         this.mode = 'runner';
         this.shotAim = null;
         // Interceptar: apuntar adonde VA a estar, no donde está
@@ -327,6 +387,44 @@ export class Bot {
         // y el latigazo salía derecho al arco de uno — el autogol del saque.
         // Se apunta un poco por dentro del arco para que el tiro converja.
         this.shotAim = { x: scorePortal.x - this.targetSide * 40, y: scorePortal.y };
+
+        // ── ¿Tiro o pase? ────────────────────────────────────────────────
+        // La decisión que más "piensa" hace parecer al bot. Se pasa cuando el
+        // compañero está MEJOR ubicado para convertir: más cerca del arco
+        // rival, con línea despejada y no demasiado lejos (un pase de media
+        // cancha lo intercepta cualquiera).
+        if (this.mate) {
+          const mp = this.mate.broom.pos;
+          const dMate = Math.hypot(mp.x - bp.x, mp.y - bp.y);
+          const miDistArco = Math.hypot(bp.x - scorePortal.x, bp.y - scorePortal.y);
+          const suDistArco = Math.hypot(mp.x - scorePortal.x, mp.y - scorePortal.y);
+          // Línea de pase despejada: que ningún rival esté cerca del segmento
+          // pelota→compañero. Se aproxima mirando la distancia del rival a la
+          // recta, que para esto alcanza y es barato.
+          let despejada = true;
+          for (const p of world.players || []) {
+            if (p.team === this.player.team) continue;
+            const ex = mp.x - bp.x, ey = mp.y - bp.y;
+            const el = Math.hypot(ex, ey) || 1;
+            const t = clamp(((p.broom.pos.x - bp.x) * ex + (p.broom.pos.y - bp.y) * ey) / (el * el), 0, 1);
+            const px = bp.x + ex * t, py = bp.y + ey * t;
+            if (Math.hypot(p.broom.pos.x - px, p.broom.pos.y - py) < 190) { despejada = false; break; }
+          }
+          // Y que el pase vaya hacia adelante: pasarla hacia atrás, al propio
+          // campo, es justo lo que no queremos.
+          const haciaAdelante = (mp.x - bp.x) * this.targetSide > -80;
+          if (despejada && haciaAdelante && dMate > 260 && dMate < 1500
+              && suDistArco < miDistArco - 200) {
+            // Pase al PUNTO FUTURO del compañero, no a donde está: si no,
+            // la pelota le llega siempre por detrás.
+            const lead = clamp(dMate / 1200, 0.1, 0.5);
+            this.shotAim = {
+              x: mp.x + this.mate.broom.vel.x * lead,
+              y: mp.y + this.mate.broom.vel.y * lead,
+            };
+            this.mode = 'pass';
+          }
+        }
       } else {
         this.shotAim = null;
       }

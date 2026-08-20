@@ -61,6 +61,12 @@ export class TouchControls {
       if (this.onFirstTouch) { this.onFirstTouch(); this.onFirstTouch = null; }
     }
     this._justTapped = true;
+    // Dónde se tocó: la pantalla de fin de partido tiene BOTONES, y en táctil
+    // no hay hover que diga cuál. Sin la posición, un toque en cualquier lado
+    // activaría siempre el mismo botón.
+    if (e.changedTouches[0]) {
+      this.tapPos = { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+    }
     const L = this._layout();
     for (const t of e.changedTouches) {
       const x = t.clientX, y = t.clientY;

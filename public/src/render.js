@@ -241,6 +241,9 @@ export class Renderer {
       __isHuman: p.isHuman,
       team: p.team,
       index: p.index,
+      // El personaje que de verdad se jugó (con fallback por si el replay
+      // viene de una versión anterior que no lo grababa).
+      characterId: p.characterId ?? 'mago',
       broom,
       rider: {
         points: p.points, cape: p.cape, footTrail: [], phase: 'idle',
@@ -459,7 +462,18 @@ export class Renderer {
       const thr = br.thrustPower || 0;
       const bst = br.boostPower || 0;
       luz(tip.x, tip.y, 90 + bst * 80, col, 0.14 + thr * 0.12 + bst * 0.24);
-      if (pl.unlimited) luz(br.pos.x, br.pos.y, 190, '255,215,120', 0.24);
+      // Aura de fuego: foco grande, cálido y latiendo. Es la señal de "ese
+      // está en llamas, no te le cruces" que se lee desde el otro lado de la
+      // cancha. El latido usa el reloj del render (no el de cada mago) a
+      // propósito: así todos los envueltos en fuego pulsan juntos.
+      // El foco es NARANJA y amplio: tiñe la zona de fuego sin lavar al
+      // personaje. Un núcleo blanco fuerte lo dejaba como una mancha
+      // brillante y se perdían las llamas, que son lo que se quiere ver.
+      if (pl.unlimited) {
+        const puls = 0.86 + 0.14 * Math.sin(this.t * 9);
+        luz(br.pos.x, br.pos.y, 320 * puls, '255,105,20', 0.40);
+        luz(br.pos.x, br.pos.y, 165 * puls, '255,170,60', 0.22);
+      }
     }
 
     // 3) Orbes y fugitivo: son fuentes de luz por naturaleza
@@ -2399,22 +2413,24 @@ export class Renderer {
       ctx.font = 'bold 44px Georgia, serif';
       ctx.fillStyle = 'rgba(255,255,255,0.9)';
       ctx.fillText(`${m.score.p1}  —  ${m.score.p2}`, cx, H * 0.36 + 76);
-      ctx.font = '24px Georgia, serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.65)';
-      const pulse = 0.5 + 0.35 * Math.sin(this.t * 4);
-      ctx.globalAlpha = 0.5 + pulse * 0.5;
-      // El torneo guía al siguiente paso; el partido suelto ofrece la revancha
-      let prompt = world.touch?.active
-        ? 'Tocá la pantalla para jugar otra'
-        : 'Click o ENTER para jugar otra';
       const tr2 = world.torneoResult;
       if (tr2) {
-        prompt = tr2.campeon ? 'Tocá para reclamar tu trofeo 🏆'
-          : tr2.win ? `Tocá para la Ronda ${tr2.proxima + 1}`
-          : 'Tocá para reintentar la ronda';
+        // El torneo guía al siguiente paso: un solo camino, sin botones.
+        ctx.font = '24px Georgia, serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        const pulse = 0.5 + 0.35 * Math.sin(this.t * 4);
+        ctx.globalAlpha = 0.5 + pulse * 0.5;
+        ctx.fillText(
+          tr2.campeon ? 'Tocá para reclamar tu trofeo 🏆'
+            : tr2.win ? `Tocá para la Ronda ${tr2.proxima + 1}`
+            : 'Tocá para reintentar la ronda',
+          cx, H * 0.36 + 140);
+        ctx.globalAlpha = 1;
+      } else {
+        // Partido suelto: dos salidas explícitas. Antes era "click en
+        // cualquier lado = otra partida", y volver al menú obligaba a pausar.
+        this._endMenu(ctx, world, W, H, cx, H * 0.36 + 112);
       }
-      ctx.fillText(prompt, cx, H * 0.36 + 140);
-      ctx.globalAlpha = 1;
 
       // ── Racha y récords ─────────────────────────────────────────────────
       // La razón para "una más": la racha se ve SIEMPRE al terminar, y los
@@ -2534,6 +2550,45 @@ export class Renderer {
   // recalculan cada frame en world.pauseMenu.rects — main.js las usa para el
   // hit-test del mouse, así el hover y el click quedan sincronizados con lo
   // que se dibujó, igual que hace menu.js con su propio canvas.
+  // Fin de partido (partido suelto): dos botones lado a lado. Van en fila y
+  // no en columna porque debajo se muestran la racha y los récords, y una
+  // columna los empujaría fuera de pantalla en monitores bajos.
+  _endMenu(ctx, world, W, H, cx, y) {
+    const em = world.endMenu;
+    if (!em) return;
+    const BW = 232, BH = 52, GAP = 18;
+    const items = [
+      { id: 'revancha', label: 'Jugar de nuevo', color: CFG.colors.p1 },
+      { id: 'menu',     label: 'Volver al menú', color: 'rgba(232,230,245,0.85)' },
+    ];
+    const totalW = BW * items.length + GAP * (items.length - 1);
+    em.rects = [];
+    items.forEach((it, i) => {
+      const x = cx - totalW / 2 + i * (BW + GAP);
+      const hover = em.hot === it.id;
+      em.rects.push({ id: it.id, x, y, w: BW, h: BH });
+
+      ctx.save();
+      if (hover) { ctx.shadowColor = it.color; ctx.shadowBlur = 22; }
+      ctx.beginPath();
+      ctx.roundRect(x, y, BW, BH, BH / 2);
+      ctx.fillStyle = hover ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.roundRect(x, y, BW, BH, BH / 2);
+      ctx.strokeStyle = hover ? it.color : 'rgba(255,255,255,0.16)';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 19px Georgia, serif';
+      ctx.fillStyle = hover ? '#fff' : it.color;
+      ctx.fillText(it.label, x + BW / 2, y + BH / 2 + 7);
+      ctx.restore();
+    });
+  }
+
   _pauseMenu(ctx, world, W, H, cx) {
     const pm = world.pauseMenu;
     ctx.fillStyle = 'rgba(5,4,15,0.72)';

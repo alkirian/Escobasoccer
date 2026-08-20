@@ -146,7 +146,8 @@ export class Broom {
       // VELOCIDAD (stat): este es el camino que usan los BOTS (el humano
       // aplica su empuje a mano en main.js con noThrustForce).
       const mul = (1 + (CFG.boost.thrustMul - 1) * this.boostPower) * slamF
-        * (M ? M.thrust : 1);
+        * (M ? M.thrust : 1)
+        * (this.aura ? CFG.runner.auraThrust : 1);   // aura de fuego
       this.vel.x += d.x * B.thrust * mul * dt;
       this.vel.y += d.y * B.thrust * mul * dt;
     }

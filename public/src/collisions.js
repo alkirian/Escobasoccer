@@ -157,8 +157,14 @@ function applyRam(attacker, victim, nx, ny, cx, cy, ally, fx) {
   // según el suyo. Un Zefir chocando a Petra casi no la mueve; al revés, la
   // manda a la tribuna. Es el stat que más se siente en un choque.
   const aMods = attacker.mods, vMods = victim.mods;
-  const force = Math.min((closing - R.minSpeed) * R.push, R.maxPush)
+  // AURA DE FUEGO: el que atrapó el orbe fugitivo embiste como un ariete.
+  // Es el efecto más visible del buff — chocar a alguien envuelto en llamas
+  // te saca literalmente de la jugada. Multiplica encima del stat de peso,
+  // así un Petra en llamas sigue pegando más fuerte que un Zefir en llamas.
+  const aura = attacker.unlimited ? CFG.runner.auraRam : 1;
+  const force = Math.min((closing - R.minSpeed) * R.push, R.maxPush * aura)
     * (ally ? R.allyMul : 1)
+    * aura
     * (aMods ? aMods.ram : 1)
     * (vMods ? vMods.knockback : 1);
 

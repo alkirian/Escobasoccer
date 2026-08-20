@@ -254,6 +254,23 @@ export class RunnerOrb {
       // esto solo decide la DIRECCIÓN.
       const w = Math.max(0.55, 1 / (1 + (d / R.fleeRange) ** 2));
       ox /= d; oy /= d;
+
+      // ANTICIPACIÓN: no huye de donde ESTÁ el perseguidor, sino de donde va a
+      // estar. Proyecta la escoba hacia adelante según su velocidad y huye de
+      // ese punto. Es lo que lo hace parecer inteligente en vez de asustado:
+      // cortarle el ángulo deja de funcionar, porque justamente se aparta del
+      // ángulo que le estás cortando. El adelanto crece con la distancia (de
+      // lejos hay tiempo de leer la intención; encima ya es reacción pura).
+      const pvx = p.broom.vel.x, pvy = p.broom.vel.y;
+      const lead = clamp(d / 1400, 0.12, 0.55);
+      let ax = this.x - (bx + pvx * lead), ay = this.y - (by + pvy * lead);
+      const al = Math.hypot(ax, ay) || 1;
+      // Mezcla: mayormente anticipado, con algo de la huida directa para que
+      // no se vuelva predecible en la otra dirección.
+      ox = ox * 0.35 + (ax / al) * 0.65;
+      oy = oy * 0.35 + (ay / al) * 0.65;
+      const ol = Math.hypot(ox, oy) || 1;
+      ox /= ol; oy /= ol;
       // Componente tangencial: en vez de huir en línea recta (fácil de
       // interceptar), escapa en diagonal. Es lo que lo hace sentir vivo y
       // no un objeto empujado.

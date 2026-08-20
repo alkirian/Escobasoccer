@@ -196,8 +196,12 @@ export const CFG = {
   orbs: {
     r: 17,               // radio visual
     pickupR: 85,         // radio de recolección: generoso, roza y ya es tuyo
-    energy: 22,          // energía que da cada orbe
-    respawn: 7,          // segundos hasta reaparecer
+    energy: 50,          // medio tanque por orbe: dos llenan la reserva
+    // Con sólo 4 orbes y hasta 4 jugadores, 7 s dejaba las esquinas vacías
+    // casi siempre (medido: 1 de 4 vivo en pleno partido) y el turbo se volvía
+    // inaccesible. 4.5 s mantiene las esquinas como un recurso que vale la
+    // pena visitar sin regalarlo.
+    respawn: 4.5,        // segundos hasta reaparecer
     fadeIn: 1.1,         // animación de regreso, para poder anticiparlo
     bobAmp: 9,           // amplitud del flotar
     bobSpeed: 1.6,
@@ -207,15 +211,15 @@ export const CFG = {
     // más rápido, lo persigue más rápido todavía para no quedarse atrás.
     catchSpeed: 1300,
     catchDist: 40,        // qué tan cerca tiene que llegar para consumirse
-    // Distribución: los del centro están sobre la ruta directa a la pelota,
-    // los de los costados obligan a desviarse. Ahí está la decisión.
+    // Distribución: UNO POR ESQUINA. Antes eran 12 repartidos por todos lados,
+    // y con eso la energía se juntaba sola volando en línea recta — el turbo
+    // era gratis en la práctica. Con cuatro en las esquinas hay que salir de
+    // la jugada a propósito para recargar: ir a buscar energía es abandonar la
+    // pelota unos segundos, y esa es la decisión que hace interesante el
+    // recurso. Cada uno da mucho más (60 vs 22) para compensar el viaje.
     layout: [
-      { x: 0.00, y: -0.62 }, { x: 0.00, y: 0.55 },
-      { x: -0.30, y: -0.24 }, { x: 0.30, y: -0.24 },
-      { x: -0.30, y: 0.30 }, { x: 0.30, y: 0.30 },
-      { x: -0.62, y: -0.55 }, { x: 0.62, y: -0.55 },
-      { x: -0.62, y: 0.42 }, { x: 0.62, y: 0.42 },
-      { x: -0.86, y: -0.10 }, { x: 0.86, y: -0.10 },
+      { x: -0.86, y: -0.62 }, { x: 0.86, y: -0.62 },
+      { x: -0.86, y: 0.55 }, { x: 0.86, y: 0.55 },
     ],
   },
 
@@ -223,7 +227,11 @@ export const CFG = {
   boost: {
     max: 100,
     thrustMul: 2.35,     // aceleración durante el boost
-    drain: 46,           // energía por segundo mientras se usa
+    // Bajado de 46 a 34: con 4 orbes en vez de 12, el turbo tiene que rendir.
+    // Un tanque lleno = ~3 s continuos, y dos orbes lo llenan. Así el turbo es
+    // combustible de verdad (se acaba, hay que ir a buscarlo) sin que quedarse
+    // seco sea la norma.
+    drain: 34,           // energía por segundo mientras se usa
     minToStart: 12,      // no se puede arrancar con la reserva casi vacía
     speedCapMul: 1.55,   // deja superar el techo normal de velocidad
   },
@@ -256,10 +264,14 @@ export const CFG = {
     // Cansancio: sigue siendo la vía para atraparlo, pero mucho más exigente.
     // Aguanta ~13 s de esprint y se recupera lento, así que hay que insistir
     // de verdad — y mientras tanto el partido sigue sin vos.
-    stamDrain: 0.075,    // ~13 s de esprint hasta quedar agotado
-    stamRecover: 0.16,   // ~6 s tranquilo para recuperarse
-    tiredSpeed: 0.72,    // agotado sigue siendo rápido (antes 0.58)
-    tiredDodge: 0.42,    // agotado esquiva bastante más que antes
+    // Subido de 13 a ~15 s de esprint, y se recupera más rápido (6.2 → 4.5 s):
+    // hay que acosarlo sin soltarlo, porque cualquier respiro que le des lo
+    // devuelve entero. Sigue siendo LA vía para atraparlo — que exista una vía
+    // es lo que lo mantiene "muy difícil" en vez de imposible.
+    stamDrain: 0.066,    // ~15 s de esprint hasta quedar agotado
+    stamRecover: 0.22,   // ~4.5 s tranquilo para recuperarse
+    tiredSpeed: 0.76,    // agotado sigue siendo rápido
+    tiredDodge: 0.48,    // y sigue esquivando bastante
     // El zigzag es lo que más lo hace inalcanzable: una escoba tiene mucha
     // inercia para girar, así que un orbe que corta en diagonal no se agarra
     // aunque vayas más rápido. Subido fuerte — es el corazón de la dificultad.
@@ -272,7 +284,14 @@ export const CFG = {
     wallWeight: 3.4,     // y se despega del borde con más fuerza
     wander: 0.35,        // deambular cuando está tranquilo
 
-    buff: 9,             // segundos de energía ilimitada al atraparlo
+    // AURA DE FUEGO: atraparlo ya no da solo energía infinita — envuelve al
+    // mago en llamas y lo vuelve una amenaza por unos segundos. Es corta a
+    // propósito: siendo tan difícil de alcanzar, la recompensa tiene que ser
+    // desequilibrante mientras dura, no cómoda y larga.
+    buff: 8,             // segundos de aura (energía ilimitada incluida)
+    auraThrust: 1.30,    // +30% de aceleración: se mueve claramente distinto
+    auraShot: 1.55,      // los latigazos salen demoledores
+    auraRam: 2.60,       // embestir manda al rival MUY lejos — es lo que más se ve
     chaseRange: 1500,    // hasta dónde un bot considera que vale la pena ir
   },
 
