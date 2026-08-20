@@ -15,6 +15,8 @@
 // Una sola lección visible a la vez, con respiro entre lecciones. Nunca pausa
 // ni bloquea: es un susurro al costado, no un cartel.
 
+import { Storage } from './storage/storage.js';
+import { t } from './i18n/i18n.js';
 const STORE_KEY = 'escoba.coach.v1';
 
 // Cuánto vive un cartel, cuánto respira entre lecciones, cuántas veces
@@ -27,14 +29,14 @@ const FLASH_TIME = 0.9;   // duración del ✓ de completado
 
 function loadDone() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = Storage.get(STORE_KEY);
     if (!raw) return {};
     return JSON.parse(raw).done || {};
   } catch { return {}; }
 }
 
 function saveDone(done) {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify({ done })); } catch { /* sin storage */ }
+  try { Storage.set(STORE_KEY, JSON.stringify({ done })); } catch { /* sin storage */ }
 }
 
 // ── Lecciones ──────────────────────────────────────────────────────────────
@@ -46,13 +48,13 @@ function saveDone(done) {
 //            (las coordenadas las resuelve el renderer, que conoce el layout).
 const LESSONS = [
   {
-    id: 'mover', key: 'MOUSE', text: 'La escoba sigue tu cursor',
+    id: 'mover', key: t('key.mouse'), text: t('coach.mover'),
     anchor: 'player',
     when: (w, L) => L.coachAge < 7 && w.input.mouseMoved < 300,
     learned: (w) => w.input.mouseMoved > 600,
   },
   {
-    id: 'golpe', key: 'CLICK', text: 'Mantené y soltá para golpear',
+    id: 'golpe', key: t('key.click'), text: t('coach.golpe'),
     anchor: 'ball',
     when: (w) => {
       const b = w.playerA.broom, ball = w.ball;
@@ -68,7 +70,7 @@ const LESSONS = [
     },
   },
   {
-    id: 'dash', key: 'ESPACIO', text: 'Dash — tenés 2 cargas',
+    id: 'dash', key: t('key.space'), text: t('coach.dash'),
     anchor: 'dashHud',
     when: (w) => {
       const d = w.dashState;
@@ -86,7 +88,7 @@ const LESSONS = [
     },
   },
   {
-    id: 'boost', key: 'SHIFT', text: 'Propulsión: gasta la energía verde',
+    id: 'boost', key: t('key.shift'), text: t('coach.boost'),
     anchor: 'energyHud',
     // Recién cuando hay energía que gastar — o sea, después del primer orbe.
     when: (w) => (w.playerA.energy || 0) > 8,
@@ -96,7 +98,7 @@ const LESSONS = [
     },
   },
   {
-    id: 'flotar', key: 'CLICK DER.', text: 'Frená y quedate flotando',
+    id: 'flotar', key: t('key.rclick'), text: t('coach.flotar'),
     anchor: 'player',
     // Pasarse de largo: vas rápido y alejándote de la pelota. Sostenido un
     // ratito, para no saltar por un roce.

@@ -8,6 +8,8 @@
 // de skin.js, el editor vectorial hereda gratis el hit-test y las manijas del
 // editor PNG — y la alineación con el ragdoll es exactamente la misma.
 import { CFG } from './config.js';
+import { Storage } from './storage/storage.js';
+
 import {
   BONES, boneThickness, BROOM_SPANS,
   pieceGeometry, broomPieceGeometry,
@@ -236,14 +238,14 @@ export function drawVSkin(ctx, vs, points, broom, S = 1, team = null, facing = 1
 // ── Persistencia ──────────────────────────────────────────────────────────
 export function saveVSkin(vs) {
   try {
-    localStorage.setItem(VSKIN_KEY, JSON.stringify(vs));
+    Storage.set(VSKIN_KEY, JSON.stringify(vs));
     return true;
   } catch { return false; }
 }
 
 export function loadVSkin() {
   try {
-    const raw = localStorage.getItem(VSKIN_KEY);
+    const raw = Storage.get(VSKIN_KEY);
     if (!raw) return null;
     const vs = JSON.parse(raw);
     if (!vs || vs.kind !== 'vskin' || !Array.isArray(vs.layers)) return null;
@@ -252,13 +254,13 @@ export function loadVSkin() {
 }
 
 export function clearVSkin() {
-  try { localStorage.removeItem(VSKIN_KEY); } catch { /* nada */ }
+  try { Storage.remove(VSKIN_KEY); } catch { /* nada */ }
 }
 
 export function vskinEnabled() {
-  try { return localStorage.getItem(VSKIN_ON_KEY) === '1'; } catch { return false; }
+  try { return Storage.get(VSKIN_ON_KEY) === '1'; } catch { return false; }
 }
 
 export function setVSkinEnabled(on) {
-  try { localStorage.setItem(VSKIN_ON_KEY, on ? '1' : '0'); } catch { /* nada */ }
+  try { Storage.set(VSKIN_ON_KEY, on ? '1' : '0'); } catch { /* nada */ }
 }

@@ -80,23 +80,42 @@
     border: 1px solid var(--line); border-radius: 10px; padding: 9px 22px;
   }
   .volver:hover { color: var(--text); border-color: #3d4780; }
+.langchip {
+    font: 600 12px system-ui; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel2); color: var(--muted);
+    cursor: pointer; transition: .13s;
+  }
+  .langchip.on { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
-  <h1>⚙️ <span>Opciones</span></h1>
+  <h1>⚙️ <span data-i18n="menu.settings">Opciones</span></h1>
 
   <div class="cols">
    <div class="col">
     <section>
-    <h2>Juego</h2>
+    <h2 data-i18n="opt.language">Idioma</h2>
+    <div class="opt" id="optLang" style="cursor:default">
+      <div class="ico">🌐</div>
+      <div class="lbl"><span data-i18n="opt.language">Idioma</span><small data-i18n="opt.language.desc">El idioma de todo el juego</small></div>
+      <div class="langchips" id="langChips" style="display:flex;gap:6px">
+        <button class="langchip" data-lang="">Auto</button>
+        <button class="langchip" data-lang="en">English</button>
+        <button class="langchip" data-lang="es">Español</button>
+      </div>
+    </div>
+    </section>
+
+    <section>
+    <h2 data-i18n="opt.game">Juego</h2>
     <div class="opt" id="optSound">
       <div class="ico">🔊</div>
-      <div class="lbl">Sonido<small>Efectos, ambiente y música del partido</small></div>
+      <div class="lbl"><span data-i18n="opt.sound">Sonido</span><small data-i18n="opt.sound.desc">Efectos, ambiente y música del partido</small></div>
       <div class="switch"></div>
     </div>
     <div class="opt" id="optOrbs">
       <div class="ico">🔮</div>
-      <div class="lbl">Orbes de energía<small>Los orbes y el fugitivo dorado en la cancha</small></div>
+      <div class="lbl"><span data-i18n="opt.orbs">Orbes de energía</span><small data-i18n="opt.orbs.desc">Los orbes y el fugitivo dorado en la cancha</small></div>
       <div class="switch"></div>
     </div>
   </section>
@@ -104,39 +123,53 @@
     </section>
 
     <section>
-    <h2>Datos</h2>
-    <button class="danger" id="btnWipe">Borrar todo mi progreso (récords, desafíos, torneo y paletas)</button>
+    <h2 data-i18n="opt.data">Datos</h2>
+    <button class="danger" id="btnWipe" data-i18n="opt.wipe">Borrar todo mi progreso (récords, desafíos, torneo y paletas)</button>
     </section>
    </div>
    <div class="col">
     <section>
-    <h2>Cómo se juega</h2>
+    <h2 data-i18n="opt.how">Cómo se juega</h2>
     <div class="keys">
-      <div class="krow"><div class="kcap">MOUSE</div><span>La escoba sigue tu cursor</span></div>
-      <div class="krow"><div class="kcap">CLICK</div><span>Mantené y soltá: golpe (más carga = más fuerza)</span></div>
-      <div class="krow"><div class="kcap">ESPACIO</div><span>Dash — tenés 2 cargas</span></div>
-      <div class="krow"><div class="kcap">SHIFT</div><span>Propulsión: gasta la energía verde</span></div>
-      <div class="krow"><div class="kcap">CLICK DER.</div><span>Frená y quedate flotando</span></div>
-      <div class="krow"><div class="kcap">ESC / P</div><span>Pausa</span></div>
+      <div class="krow"><div class="kcap" data-i18n="key.mouse">MOUSE</div><span data-i18n="opt.k.mouse">La escoba sigue tu cursor</span></div>
+      <div class="krow"><div class="kcap" data-i18n="key.click">CLICK</div><span data-i18n="opt.k.click">Mantené y soltá: golpe (más carga = más fuerza)</span></div>
+      <div class="krow"><div class="kcap" data-i18n="key.space">ESPACIO</div><span data-i18n="opt.k.space">Dash — tenés 2 cargas</span></div>
+      <div class="krow"><div class="kcap" data-i18n="key.shift">SHIFT</div><span data-i18n="opt.k.shift">Propulsión: gasta la energía verde</span></div>
+      <div class="krow"><div class="kcap" data-i18n="key.rclick">CLICK DER.</div><span data-i18n="opt.k.rclick">Frená y quedate flotando</span></div>
+      <div class="krow"><div class="kcap">ESC / P</div><span data-i18n="opt.k.esc">Pausa</span></div>
     </div>
-    <p class="tactil">📱 En el teléfono: joystick a la izquierda, GAS y GOLPE a la
-    derecha, doble toque en el joystick = dash, GAS sostenido = propulsión,
-    y el botón ⏸ arriba a la derecha pausa.</p>
+    <p class="tactil" data-i18n="opt.touch">📱 …</p>
     </section>
    </div>
   </div>
 
-  <a class="volver" href="index.html">← Volver al menú</a>
+  <a class="volver" href="index.html" data-i18n="opt.back">← Volver al menú</a>
 
   <script type="module">
+    import { Storage } from './src/storage/storage.js';
+    import { t, applyI18n, setLang, manualLang } from './src/i18n/i18n.js';
+    applyI18n();
+
+    // Selector de idioma: la elección manual pisa la detección automática.
+    // Cambiar recarga la página — es la forma más simple de retraducir todo.
+    const chips = document.querySelectorAll('.langchip');
+    const paintLang = () => {
+      const m = manualLang() ?? '';
+      chips.forEach((c) => c.classList.toggle('on', c.dataset.lang === m));
+    };
+    chips.forEach((c) => {
+      if (c.dataset.lang === '') c.textContent = t('opt.lang.auto');
+      c.onclick = () => { setLang(c.dataset.lang || null); location.reload(); };
+    });
+    paintLang();
     // Sonido/orbes viven en la misma clave que usaba el menú viejo, así las
     // preferencias ya guardadas de quien venía jugando se respetan.
     const KEY = 'escoba.menu.v1';
     const load = () => {
-      try { return { sound: true, orbs: true, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
+      try { return { sound: true, orbs: true, ...JSON.parse(Storage.get(KEY) || '{}') }; }
       catch { return { sound: true, orbs: true }; }
     };
-    const save = (o) => { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch { /* nada */ } };
+    const save = (o) => { try { Storage.set(KEY, JSON.stringify(o)); } catch { /* nada */ } };
 
     const opts = load();
     const bind = (id, key) => {
@@ -154,9 +187,9 @@
       if (!confirm('¿Borrar récords, desafíos, torneo y paletas elegidas?\n(Los personajes del editor NO se tocan.)')) return;
       for (const k of ['escoba.stats.v1', 'escoba.challenges.v1', 'escoba.torneo.v1',
                        'escoba.palette.v1', 'escoba.prep.v1']) {
-        try { localStorage.removeItem(k); } catch { /* nada */ }
+        try { Storage.remove(k); } catch { /* nada */ }
       }
-      alert('Listo: progreso borrado. Tu próximo partido vuelve a ser el primero.');
+      alert(t('opt.wipe.done'));
     };
   </script>
 </body>

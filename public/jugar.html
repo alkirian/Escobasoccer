@@ -287,7 +287,7 @@
 </style>
 </head>
 <body>
-  <h1>Preparar <span>partido</span></h1>
+  <h1 data-i18n-html="prep.title">Preparar <span>partido</span></h1>
 
   <div class="tabs" id="tabs"></div>
 
@@ -306,17 +306,17 @@
 
   <div class="rules" id="rules">
     <div class="rule-card" id="cardTiempo">
-      <h3>⏱ Por tiempo</h3>
+      <h3 data-i18n="prep.bytime">⏱ Por tiempo</h3>
       <div class="chips" id="chipsTiempo"></div>
     </div>
     <div class="rule-card" id="cardGoles">
-      <h3>🥅 Por goles</h3>
+      <h3 data-i18n="prep.bygoals">🥅 Por goles</h3>
       <div class="chips" id="chipsGoles"></div>
     </div>
   </div>
 
   <div class="rival" id="rivalRow">
-    <b>Rival</b>
+    <b data-i18n="prep.rival">Rival</b>
     <div class="chips" id="chipsRival"></div>
   </div>
 
@@ -328,8 +328,8 @@
     <button class="unlock" id="btnUnlock"></button>
   </div>
 
-  <button class="go" id="btnGo">▶ ¡A VOLAR!</button>
-  <a class="volver" href="index.html">← Volver al menú</a>
+  <button class="go" id="btnGo" data-i18n="prep.go">▶ ¡A VOLAR!</button>
+  <a class="volver" href="index.html" data-i18n="prep.back">← Volver al menú</a>
 
   <script type="module" src="src/jugar.js"></script>
 </body>

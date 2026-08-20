@@ -99,29 +99,31 @@
 </style>
 </head>
 <body>
-  <h1>🏆 <span>Trofeos</span></h1>
+  <h1>🏆 <span data-i18n="menu.trophies">Trofeos</span></h1>
   <div id="campeonBanner" style="display:none" class="campeon-banner"></div>
 
   <div class="cols">
     <section>
-      <h2>Camino al Campeonato</h2>
+      <h2 data-i18n="troph.road">Camino al Campeonato</h2>
       <div class="torneo-box" id="torneoBox"></div>
     </section>
 
     <section>
-      <h2>Récords</h2>
+      <h2 data-i18n="troph.records">Récords</h2>
       <div class="grid-stats" id="stats"></div>
     </section>
 
     <section>
-      <h2>Desafíos</h2>
+      <h2 data-i18n="troph.challenges">Desafíos</h2>
       <div id="challenges"></div>
     </section>
   </div>
 
-  <a class="volver" href="index.html">← Volver al menú</a>
+  <a class="volver" href="index.html" data-i18n="opt.back">← Volver al menú</a>
 
   <script type="module">
+    import { t, applyI18n } from './src/i18n/i18n.js';
+    applyI18n();
     import { CHALLENGES, isDone } from './src/challenges.js';
     import { loadStats } from './src/stats.js';
     import { loadTorneo, RONDAS } from './src/torneo.js';
@@ -130,34 +132,34 @@
     if (new URLSearchParams(location.search).has('campeon')) {
       const b = document.getElementById('campeonBanner');
       b.style.display = 'block';
-      b.innerHTML = '🏆 ¡CAMPEÓN DEL CAMINO! 🏆<small>Ganaste las cinco rondas. El trofeo es tuyo para siempre.</small>';
+      b.innerHTML = `${t('troph.champion')}<small>${t('troph.champion.sub')}</small>`;
     }
 
     // Torneo
-    const t = loadTorneo();
+    const tor = loadTorneo();
     const tb = document.getElementById('torneoBox');
-    const copas = t.campeonatos > 0 ? '🏆'.repeat(Math.min(t.campeonatos, 5)) : '🏆';
+    const copas = tor.campeonatos > 0 ? '🏆'.repeat(Math.min(tor.campeonatos, 5)) : '🏆';
     tb.innerHTML = `
-      <div class="cup" style="${t.campeonatos ? '' : 'filter:grayscale(1);opacity:.4'}">${copas}</div>
+      <div class="cup" style="${tor.campeonatos ? '' : 'filter:grayscale(1);opacity:.4'}">${copas}</div>
       <div class="info">
-        <b>${t.campeonatos > 0 ? `Campeonatos ganados: ${t.campeonatos}` : 'Todavía sin campeonatos'}</b>
+        <b>${tor.campeonatos > 0 ? t('troph.champCount', { n: tor.campeonatos }) : t('troph.noChamps')}</b>
         <div class="sub">
-          ${t.ronda > 0
-            ? `Torneo en curso: ronda ${t.ronda + 1} de ${RONDAS.length} (vs ${RONDAS[t.ronda].nombre})`
-            : `Mejor avance: ${t.mejorRonda > 0 ? `ronda ${Math.min(t.mejorRonda, RONDAS.length)} de ${RONDAS.length}` : 'aún no empezaste'}`}
+          ${tor.ronda > 0
+            ? t('troph.inProgress', { n: tor.ronda + 1, total: RONDAS.length, name: t(`torneo.r${tor.ronda}.name`) })
+            : t('troph.best', { v: tor.mejorRonda > 0 ? t('troph.bestRound', { n: Math.min(tor.mejorRonda, RONDAS.length), total: RONDAS.length }) : t('troph.notStarted') })}
         </div>
       </div>
-      <a href="jugar.html">${t.ronda > 0 ? 'Continuar' : 'Empezar'}</a>`;
+      <a href="jugar.html">${tor.ronda > 0 ? t('troph.continue') : t('troph.start')}</a>`;
 
     // Récords
     const s = loadStats();
     const stats = [
-      [s.wins, 'Victorias'],
-      [s.losses, 'Derrotas'],
-      [s.bestStreak, 'Mejor racha', true],
-      [s.goalsFor, 'Goles a favor'],
-      [s.biggestWin, 'Mayor goleada', true],
-      [s.runners, 'Fugitivos atrapados'],
+      [s.wins, t('stats.wins')],
+      [s.losses, t('stats.losses')],
+      [s.bestStreak, t('stats.bestStreak'), true],
+      [s.goalsFor, t('stats.goalsFor')],
+      [s.biggestWin, t('stats.biggestWin'), true],
+      [s.runners, t('stats.runners')],
     ];
     document.getElementById('stats').innerHTML = stats
       .map(([v, l, gold]) => `<div class="stat${gold ? ' gold' : ''}"><b>${v}</b><span>${l}</span></div>`)
@@ -168,10 +170,12 @@
     for (const c of CHALLENGES) {
       const row = document.createElement('div');
       row.className = 'ch' + (isDone(c.id) ? ' done' : '');
-      const premio = c.palette ? `Paleta: ${c.palette.nombre}` : 'Medalla';
+      const premio = c.palette
+        ? t('reward.palette', { name: t(`pal.${c.palette.id}.name`) })
+        : t('reward.medal');
       row.innerHTML = `
         <div class="ico">${c.icono}</div>
-        <div><div class="tit">${c.titulo}</div><div class="des">${c.desc}</div></div>
+        <div><div class="tit">${t(`ch.${c.id}.title`)}</div><div class="des">${t(`ch.${c.id}.desc`)}</div></div>
         <div class="premio">${premio}</div>`;
       box.appendChild(row);
     }

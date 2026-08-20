@@ -4,6 +4,7 @@
 import { CFG } from './config.js';
 import { portalCenter } from './arena.js';
 import { clamp, lerp } from './utils.js';
+import { t as tr } from './i18n/i18n.js';
 import { loadSkin, loadBroomSkin } from './skin.js';
 import { CHARACTERS } from './characters.js';
 import { loadVSkin, drawVSkin, vskinEnabled } from './vecskin.js';
@@ -580,7 +581,7 @@ export class Renderer {
     this._chainToast = {
       t: 0,
       life: 1.1,
-      texto: nivel >= 2 ? '¡ZIGZAG!' : '¡CRÍTICO!',
+      texto: nivel >= 2 ? tr('toast.zigzag') : tr('toast.critical'),
       nivel,
     };
   }
@@ -1411,8 +1412,8 @@ export class Renderer {
     const c = this._ch;
     const fade = Math.min(1, (this._chT - this.t) / 0.5, (this.t - (this._chT - 4.6)) * 3);
     const cx = W / 2, y = 92;
-    const texto = `${c.icono} Desafío completado: ${c.titulo}`;
-    const sub = c.palette ? `Desbloqueaste: ${c.palette.nombre} — elegila en Personajes` : 'Medalla ganada';
+    const texto = tr('toast.challenge', { icon: c.icono, title: tr(`ch.${c.id}.title`) });
+    const sub = c.palette ? tr('toast.palette', { name: tr(`pal.${c.palette.id}.name`) }) : tr('toast.medal');
 
     ctx.save();
     ctx.globalAlpha = Math.max(0, fade);
@@ -2434,7 +2435,7 @@ export class Renderer {
         ctx.fillText(`${s.lastHit | 0}`, cx, H * 0.16);
         ctx.font = '17px Georgia, serif';
         ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        ctx.fillText(s.lastAimed ? 'golpe dirigido' : 'toque libre', cx, H * 0.16 + 34);
+        ctx.fillText(s.lastAimed ? tr('practice.aimed') : tr('practice.free'), cx, H * 0.16 + 34);
         ctx.globalAlpha = 1;
       }
     }
@@ -2458,7 +2459,7 @@ export class Renderer {
     }
     if (this._hintRunnerUntil !== undefined && this.t < this._hintRunnerUntil
         && world.runner?.active) {
-      text = '✨ ¡El orbe dorado! Atrapalo y tu energía será infinita unos segundos';
+      text = tr('hint.runner');
     }
     const plA = world.playerA;
     if (!text && plA && plA.energy >= CFG.boost.max * CFG.whip.fireThreshold
@@ -2466,15 +2467,15 @@ export class Renderer {
       this._hintFireUntil = this.t + 5.5;
     }
     if (!text && this._hintFireUntil !== undefined && this.t < this._hintFireUntil) {
-      text = '🔥 Media barra llena: tu golpe cargado sale EN LLAMAS';
+      text = tr('hint.fire');
     }
 
     // ── Controles táctiles (el teclado los enseña el coach) ────────────────
     if (!text && world.touch?.active) {
       const t = world.touch;
-      if (!t.hasDir) text = 'Deslizá el dedo del lado izquierdo para apuntar la escoba';
-      else if (t.thrustTime < 1.4) text = 'Mantené GAS para acelerar';
-      else if (t.hitTime < 0.5) text = 'Mantené GOLPE y soltá para pegarle a la pelota';
+      if (!t.hasDir) text = tr('hint.touch.aim');
+      else if (t.thrustTime < 1.4) text = tr('hint.touch.gas');
+      else if (t.hitTime < 0.5) text = tr('hint.touch.hit');
     }
     if (!text) return;
     ctx.font = '20px Georgia, serif';

@@ -162,21 +162,25 @@
 </head>
 <body>
   <h1 class="logo"><span class="escoba">🧹</span> Escoba <span class="v">Voladora</span></h1>
-  <p class="tag">Fútbol de magos. Física alocada. Cero reglas elegantes.</p>
+  <p class="tag" data-i18n="menu.tagline">Fútbol de magos. Física alocada. Cero reglas elegantes.</p>
 
   <nav>
-    <a class="primary" href="jugar.html"><span class="ico">▶</span> JUGAR <small>1v1 · 2v2 · torneo</small></a>
-    <a href="personajes.html"><span class="ico">🧙</span> Personajes <small>héroes y paletas</small></a>
-    <a href="trofeos.html"><span class="ico">🏆</span> Trofeos <small>desafíos y récords</small></a>
-    <a href="opciones.html"><span class="ico">⚙️</span> Opciones <small>sonido y controles</small></a>
+    <a class="primary" href="jugar.html"><span class="ico">▶</span> <span data-i18n="menu.play">JUGAR</span> <small data-i18n="menu.play.sub">1v1 · 2v2 · torneo</small></a>
+    <a href="personajes.html"><span class="ico">🧙</span> <span data-i18n="menu.characters">Personajes</span> <small data-i18n="menu.characters.sub">héroes y paletas</small></a>
+    <a href="trofeos.html"><span class="ico">🏆</span> <span data-i18n="menu.trophies">Trofeos</span> <small data-i18n="menu.trophies.sub">desafíos y récords</small></a>
+    <a href="opciones.html"><span class="ico">⚙️</span> <span data-i18n="menu.settings">Opciones</span> <small data-i18n="menu.settings.sub">sonido y controles</small></a>
   </nav>
 
   <footer>
     <span>v1.1</span>
-    <a href="veditor.html">✏️ Crear mi héroe</a>
+    <a href="veditor.html" data-i18n="menu.editor">✏️ Crear mi héroe</a>
     <a href="https://github.com/alkirian/Escobasoccer" target="_blank" rel="noopener">hecho por alkirian</a>
   </footer>
 
+  <script type="module">
+    import { applyI18n } from './src/i18n/i18n.js';
+    applyI18n();
+  </script>
   <script>
     // Estrellitas de fondo: livianas, sin canvas ni loop propio
     for (let i = 0; i < 26; i++) {

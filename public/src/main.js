@@ -26,6 +26,10 @@ import { collideBallArena, collideBroomArena, applyPortalSuction } from './arena
 import { interactPlayerBall, interactPlayers, clampRiderArena } from './collisions.js';
 import { emitTrail } from './characters.js';
 
+import { Storage } from './storage/storage.js';
+import { t, applyI18n } from './i18n/i18n.js';
+import { Platform } from './platform/platform.js';
+
 // ── Tuning dash + giro ────────────────────────────────────────────────────
 // El dash ahora vive en CFG.dash (config.js): así los bots lo comparten en
 // vez de tener su propia copia de los números.
@@ -49,6 +53,11 @@ const SPIN = {
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+
+// Traducir el HUD estático de play.html al idioma resuelto, y avisar a la
+// plataforma que la página del partido arrancó.
+applyI18n();
+Platform.init();
 
 // Flags de URL
 const params = new URLSearchParams(location.search);
@@ -159,7 +168,7 @@ const CHAR_POOL = ['mago', 'valka', 'mordrak', 'izar', 'zefir',
                    'petra', 'hilaria', 'vendaval', 'silvano', 'fogon'];
 {
   let pick = params.get('char');
-  if (!pick) { try { pick = localStorage.getItem(CHAR_KEY); } catch { /* sin storage */ } }
+  if (!pick) { try { pick = Storage.get(CHAR_KEY); } catch { /* sin storage */ } }
   // El humano solo puede jugar personajes DESBLOQUEADOS: ni la URL ni un
   // guardado viejo saltean el candado. Los bots sí usan el plantel entero —
   // ver rivales que no tenés es la mejor publicidad del desbloqueo.

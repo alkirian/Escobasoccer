@@ -12,6 +12,9 @@ import { statsHTML } from './statsui.js';
 import { statsOf, pasivaOf } from './stats_chars.js';
 import { isUnlocked, coins, tryUnlock, COSTS } from './roster.js';
 
+import { Storage } from './storage/storage.js';
+import { t, applyI18n } from './i18n/i18n.js';
+
 const CHAR_KEY = 'escoba.character.v1';
 const PREP_KEY = 'escoba.prep.v1';
 const MENU_KEY = 'escoba.menu.v1';   // sonido/orbes: los administra Opciones
@@ -21,15 +24,15 @@ const $ = (id) => document.getElementById(id);
 // ── Estado (persistido) ────────────────────────────────────────────────────
 const DEFAULTS = { mode: '1v1', ruleType: 'tiempo', duration: 120, goals: 5, difficulty: 'normal' };
 let prep = (() => {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(PREP_KEY) || '{}') }; }
+  try { return { ...DEFAULTS, ...JSON.parse(Storage.get(PREP_KEY) || '{}') }; }
   catch { return { ...DEFAULTS }; }
 })();
 function savePrep() {
-  try { localStorage.setItem(PREP_KEY, JSON.stringify(prep)); } catch { /* nada */ }
+  try { Storage.set(PREP_KEY, JSON.stringify(prep)); } catch { /* nada */ }
 }
 
 let heroIdx = Math.max(0, ROSTER.findIndex((h) => {
-  try { return h.id === localStorage.getItem(CHAR_KEY); } catch { return false; }
+  try { return h.id === Storage.get(CHAR_KEY); } catch { return false; }
 }));
 // Un guardado viejo puede apuntar a un personaje bloqueado: caer al primero
 // desbloqueado en vez de dejar seleccionado algo que no se puede jugar.
@@ -38,11 +41,13 @@ if (!isUnlocked(ROSTER[heroIdx]?.id)) {
 }
 
 // ── Pestañas de modo ───────────────────────────────────────────────────────
+applyI18n();
+
 const MODES = [
-  { id: '1v1', label: '1 vs 1' },
-  { id: '2v2', label: '2 vs 2' },
-  { id: 'practica', label: 'Práctica' },
-  { id: 'torneo', label: '🏆 Torneo' },
+  { id: '1v1', label: t('prep.mode.1v1') },
+  { id: '2v2', label: t('prep.mode.2v2') },
+  { id: 'practica', label: t('prep.mode.practice') },
+  { id: 'torneo', label: t('prep.mode.tournament') },
 ];
 for (const m of MODES) {
   const b = document.createElement('button');
@@ -101,32 +106,32 @@ $('cardTiempo').onclick = () => { prep.ruleType = 'tiempo'; savePrep(); refreshR
 $('cardGoles').onclick = () => { prep.ruleType = 'goles'; savePrep(); refreshRuleCards(); };
 refreshRuleCards();
 
-const DIFF_LABEL = { facil: 'Fácil', normal: 'Normal', dificil: 'Difícil' };
+const DIFF_LABEL = { facil: t('prep.diff.facil'), normal: t('prep.diff.normal'), dificil: t('prep.diff.dificil') };
 buildChips('chipsRival', ['facil', 'normal', 'dificil'], prep.difficulty,
   (v) => DIFF_LABEL[v], (v) => { prep.difficulty = v; savePrep(); });
 
 // ── Bracket del torneo ─────────────────────────────────────────────────────
 function buildBracket() {
-  const t = loadTorneo();
+  const tor = loadTorneo();
   const box = $('bracket');
   box.innerHTML = '';
   const head = document.createElement('div');
   head.className = 't-head';
   head.innerHTML = `
-    <b>Camino al Campeonato ${t.campeonatos > 0 ? `· 🏆×${t.campeonatos}` : ''}</b>
-    ${t.ronda > 0 ? '<button id="btnResetT">Empezar de cero</button>' : ''}`;
+    <b>${t('prep.champRoad')} ${tor.campeonatos > 0 ? `· 🏆×${tor.campeonatos}` : ''}</b>
+    ${tor.ronda > 0 ? `<button id="btnResetT">${t('prep.resetT')}</button>` : ''}`;
   box.appendChild(head);
   RONDAS.forEach((r, i) => {
     const row = document.createElement('div');
-    const estado = i < t.ronda ? 'done' : i === t.ronda ? 'actual' : '';
+    const estado = i < tor.ronda ? 'done' : i === tor.ronda ? 'actual' : '';
     row.className = 'ronda ' + estado;
-    const st = i < t.ronda ? '✅' : i === t.ronda ? '▶' : '🔒';
-    const regla = r.goles ? `a ${r.goles} goles` : `${r.duracion}s`;
+    const st = i < tor.ronda ? '✅' : i === tor.ronda ? '▶' : '🔒';
+    const regla = r.goles ? t('prep.toGoals', { n: r.goles }) : `${r.duracion}s`;
     row.innerHTML = `
       <span class="st">${st}</span>
       <span>
-        <span class="quien">${r.final ? '🏆 ' : ''}Ronda ${i + 1}: ${r.nombre}</span><br>
-        <span class="det">${r.frase}</span>
+        <span class="quien">${t('prep.round', { star: r.final ? '🏆 ' : '', n: i + 1, name: t(`torneo.r${i}.name`) })}</span><br>
+        <span class="det">${t(`torneo.r${i}.phrase`)}</span>
       </span>
       <span class="regla">${DIFF_LABEL[r.dificultad]}<br>${regla}</span>`;
     box.appendChild(row);
@@ -163,40 +168,41 @@ function applyHero() {
   pl.paletteId = selectedPalettes()[h.id] ?? null;
   // Solo se persiste la elección si el personaje está desbloqueado: mirar
   // uno bloqueado no debe romper el guardado.
-  if (libre) { try { localStorage.setItem(CHAR_KEY, h.id); } catch { /* nada */ } }
+  if (libre) { try { Storage.set(CHAR_KEY, h.id); } catch { /* nada */ } }
   $('heroNom').innerHTML = libre
-    ? `${h.nombre} <small>${h.titulo}</small>`
-    : `🔒 ${h.nombre} <small>${h.titulo}</small>`;
-  $('heroRol').textContent = h.rol;
+    ? `${h.nombre} <small>${t(`hero.${h.id}.title`)}</small>`
+    : `🔒 ${h.nombre} <small>${t(`hero.${h.id}.title`)}</small>`;
+  $('heroRol').textContent = t(`hero.${h.id}.role`);
   $('heroStats').innerHTML = statsHTML(h.id);
   const pas = pasivaOf(h.id);
-  $('heroArq').textContent = statsOf(h.id).arq + (pas ? `  ·  ${pas.icono} ${pas.nombre}: ${pas.desc}` : '');
+  $('heroArq').textContent = t(`arq.${h.id}`)
+    + (pas ? `  ·  ${pas.icono} ${t(`pasiva.${h.id}.name`)}: ${t(`pasiva.${h.id}.desc`)}` : '');
 
   // ── Candado / desbloqueo ─────────────────────────────────────────────────
   const lockRow = $('lockRow');
   if (libre) {
     lockRow.classList.add('hide');
     $('btnGo').disabled = false;
-    $('btnGo').textContent = '▶ ¡A VOLAR!';
+    $('btnGo').textContent = t('prep.go');
   } else {
     const cost = COSTS[h.id] ?? 0;
     const c = coins();
     lockRow.classList.remove('hide');
-    $('lockTxt').textContent = `Se desbloquea con monedas — ${cost} 🪙 (tenés ${c})`;
+    $('lockTxt').textContent = t('prep.unlockWith', { cost, coins: c });
     const btn = $('btnUnlock');
     btn.disabled = c < cost;
-    btn.textContent = c < cost ? `🔒 Te faltan ${cost - c} 🪙` : `Desbloquear por ${cost} 🪙`;
+    btn.textContent = c < cost ? t('prep.missing', { n: cost - c }) : t('prep.unlockFor', { cost });
     btn.onclick = () => { if (tryUnlock(h.id)) applyHero(); };
     $('btnGo').disabled = true;
-    $('btnGo').textContent = '🔒 Bloqueado';
+    $('btnGo').textContent = t('prep.locked');
   }
   // chips de paleta (solo desbloqueadas)
   const row = $('palRow');
   row.innerHTML = '';
   const unlocked = unlockedPalettes(h.id);
   if (unlocked.length && CHARACTERS[h.id]?.palettes) {
-    const ops = [{ id: null, nombre: 'Base' },
-                 ...unlocked.map((p) => ({ id: p.id, nombre: p.nombre.split(' ').pop() }))];
+    const ops = [{ id: null, nombre: t('palette.base') },
+                 ...unlocked.map((p) => ({ id: p.id, nombre: t(`pal.${p.id}.chip`) }))];
     for (const op of ops) {
       const chip = document.createElement('button');
       chip.className = 'pal' + ((pl.paletteId ?? null) === op.id ? ' on' : '');
@@ -266,7 +272,7 @@ $('btnGo').onclick = () => {
   const q = new URLSearchParams();
   // sonido/orbes: preferencias que administra la página de Opciones
   let menuOpts = {};
-  try { menuOpts = JSON.parse(localStorage.getItem(MENU_KEY) || '{}'); } catch { /* nada */ }
+  try { menuOpts = JSON.parse(Storage.get(MENU_KEY) || '{}'); } catch { /* nada */ }
   if (menuOpts.sound === false) q.set('mute', '1');
   if (menuOpts.orbs === false) q.set('noorbs', '1');
 

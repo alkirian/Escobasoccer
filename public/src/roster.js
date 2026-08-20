@@ -9,6 +9,7 @@
 // Las monedas se ganan al terminar partidos reales (ni práctica ni ?bots):
 // ganar paga más que perder, y cada gol suma — perder 3-4 igual deja algo.
 
+import { Storage } from './storage/storage.js';
 const KEY = 'escoba.roster.v1';
 
 export const STARTERS = ['mago', 'mordrak', 'zefir', 'valka', 'petra'];
@@ -25,7 +26,7 @@ export const COSTS = {
 
 function load() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = Storage.get(KEY);
     if (!raw) return { coins: 0, unlocked: [] };
     const d = JSON.parse(raw);
     return { coins: d.coins | 0, unlocked: Array.isArray(d.unlocked) ? d.unlocked : [] };
@@ -33,7 +34,7 @@ function load() {
 }
 
 function save(d) {
-  try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { /* sin storage */ }
+  try { Storage.set(KEY, JSON.stringify(d)); } catch { /* sin storage */ }
 }
 
 export function isUnlocked(id) {

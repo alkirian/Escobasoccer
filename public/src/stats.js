@@ -3,6 +3,7 @@
 // muestra en la pantalla de fin, no escondida en un menú.
 //
 // Solo cuentan partidos reales: ni práctica, ni modo espectador (?bots).
+import { Storage } from './storage/storage.js';
 const KEY = 'escoba.stats.v1';
 
 const FRESH = {
@@ -17,7 +18,7 @@ const FRESH = {
 
 export function loadStats() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = Storage.get(KEY);
     if (!raw) return { ...FRESH };
     const s = JSON.parse(raw);
     return { ...FRESH, ...s };
@@ -25,7 +26,7 @@ export function loadStats() {
 }
 
 export function saveStats(s) {
-  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* sin storage */ }
+  try { Storage.set(KEY, JSON.stringify(s)); } catch { /* sin storage */ }
 }
 
 // ¿Primera partida de la vida en este navegador? Decide el arranque suave

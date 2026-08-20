@@ -4,6 +4,7 @@
 // desbloqueadas convierten el plantel en progresión.
 //
 // Todo vive en localStorage — sin cuentas, sin servidor.
+import { Storage } from './storage/storage.js';
 const KEY = 'escoba.challenges.v1';
 
 // `palette` = recompensa: { char, id, nombre }. Sin palette → medalla.
@@ -44,13 +45,13 @@ export const CHALLENGES = [
 
 function load() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = Storage.get(KEY);
     return raw ? JSON.parse(raw) : { done: {} };
   } catch { return { done: {} }; }
 }
 
 function save(st) {
-  try { localStorage.setItem(KEY, JSON.stringify(st)); } catch { /* nada */ }
+  try { Storage.set(KEY, JSON.stringify(st)); } catch { /* nada */ }
 }
 
 export function isDone(id) {
@@ -82,7 +83,7 @@ export function unlockedPalettes(charId) {
 const PALETTE_KEY = 'escoba.palette.v1';
 
 export function selectedPalettes() {
-  try { return JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}'); }
+  try { return JSON.parse(Storage.get(PALETTE_KEY) || '{}'); }
   catch { return {}; }
 }
 
@@ -90,5 +91,5 @@ export function selectPalette(charId, paletteId) {
   const map = selectedPalettes();
   if (paletteId) map[charId] = paletteId;
   else delete map[charId];
-  try { localStorage.setItem(PALETTE_KEY, JSON.stringify(map)); } catch { /* nada */ }
+  try { Storage.set(PALETTE_KEY, JSON.stringify(map)); } catch { /* nada */ }
 }

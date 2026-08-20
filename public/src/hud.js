@@ -13,6 +13,7 @@
 // (anillo de carga, halo del jugador) sigue en canvas, que para eso es mejor.
 import { CFG } from './config.js';
 import { clamp } from './utils.js';
+import { t } from './i18n/i18n.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -94,14 +95,14 @@ export class Hud {
 
       let clock, sub, low = false, goldentxt = false;
       if (m.golden) {
-        clock = 'GOL DE ORO'; sub = 'el próximo gana'; goldentxt = true;
+        clock = t('hud.golden'); sub = t('hud.golden.sub'); goldentxt = true;
       } else if (m.goalTarget > 0) {
-        clock = `META ${m.goalTarget}`; sub = 'el primero gana'; goldentxt = true;
+        clock = t('hud.target', { n: m.goalTarget }); sub = t('hud.target.sub'); goldentxt = true;
       } else {
-        const t = Math.max(m.timeLeft, 0);
-        clock = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-        sub = world.botsMode ? 'AZUL · ROJO' : 'TÚ · RIVAL';
-        low = t < 20;
+        const tl = Math.max(m.timeLeft, 0);
+        clock = `${Math.floor(tl / 60)}:${String(Math.floor(tl % 60)).padStart(2, '0')}`;
+        sub = world.botsMode ? t('hud.blue_red') : t('hud.you_rival');
+        low = tl < 20;
       }
       this._set('clock', clock, (v) => { el.clock.textContent = v; });
       this._set('clockSub', sub, (v) => { el.clockSub.textContent = v; });
@@ -131,9 +132,9 @@ export class Hud {
           el.bolts[i].style.setProperty('--f', (d.rechargeT / d.recharge).toFixed(3));
         }
       }
-      let dl = 'ESPACIO';
-      if (locked && m.state === 'play' && m.dashLockT > 0) dl = `ESPACIO · listo en ${Math.ceil(m.dashLockT)}s`;
-      else if (d.charges < d.maxCharges) dl = `ESPACIO · +1 en ${(d.recharge - d.rechargeT).toFixed(1)}s`;
+      let dl = t('hud.space');
+      if (locked && m.state === 'play' && m.dashLockT > 0) dl = t('hud.space.locked', { n: Math.ceil(m.dashLockT) });
+      else if (d.charges < d.maxCharges) dl = t('hud.space.charging', { n: (d.recharge - d.rechargeT).toFixed(1) });
       this._set('dashLabel', dl, (v) => { el.dashLabel.textContent = v; });
       this._set('dashLocked', locked, (v) => el.dashLabel.classList.toggle('locked', v));
 
@@ -142,7 +143,7 @@ export class Hud {
       el.energyFill.style.width = (clamp(pl.energy / CFG.boost.max, 0, 1) * 100).toFixed(1) + '%';
       this._set('boosting', boosting, (v) => el.energyWrap.classList.toggle('boosting', v));
       this._set('unlimited', unlimited, (v) => el.energyWrap.classList.toggle('unlimited', v));
-      const elabel = unlimited ? `∞ ${pl.unlimitedT.toFixed(1)}s` : 'ENERGÍA · SHIFT';
+      const elabel = unlimited ? `∞ ${pl.unlimitedT.toFixed(1)}s` : t('hud.energy');
       this._set('energyLabel', elabel, (v) => { el.energyLabel.textContent = v; });
     }
 
@@ -152,12 +153,12 @@ export class Hud {
       const c = Math.ceil(m.countT);
       if (m.countT > 0.35 && c <= 3) { big = String(c); bigClass = 'count'; }
     } else if (m.state === 'play' && world.yaVisible && !m.golden) {
-      big = '¡YA!'; bigClass = 'ya';
+      big = t('game.ya'); bigClass = 'ya';
     } else if (m.state === 'goal' && m.blasted) {
-      big = '¡GOOOL!'; bigClass = 'goal ' + (m.goalScorer === 'p1' ? 'p1' : 'p2');
-      sub2 = `Gol ${m.goalScorer === 'p1'
-        ? (world.botsMode ? 'del bot azul' : 'tuyo')
-        : (world.botsMode ? 'del bot rojo' : 'del rival')}`;
+      big = t('game.goal'); bigClass = 'goal ' + (m.goalScorer === 'p1' ? 'p1' : 'p2');
+      sub2 = m.goalScorer === 'p1'
+        ? (world.botsMode ? t('game.goal.blue') : t('game.goal.you'))
+        : (world.botsMode ? t('game.goal.red') : t('game.goal.rival'));
     }
     this._set('big', big + '|' + bigClass, () => {
       el.bigMain.textContent = big;
@@ -165,10 +166,14 @@ export class Hud {
     });
     this._set('bigSub', sub2, (v) => { el.bigSub.textContent = v; });
 
-    // Presentación de ronda del torneo durante la cuenta regresiva
-    const t = world.torneo;
-    const intro = (m.state === 'countdown' && t)
-      ? `${t.cfg.final ? '🏆 LA FINAL' : `RONDA ${t.indice + 1} de ${t.total}`}<small>vs ${t.cfg.nombre}</small><em>${t.cfg.frase}</em>`
+    // Presentación de ronda del torneo durante la cuenta regresiva. El nombre
+    // y la frase del rival salen del diccionario por índice de ronda, así el
+    // torneo entero está traducido sin tocar torneo.js.
+    const tor = world.torneo;
+    const intro = (m.state === 'countdown' && tor)
+      ? `${tor.cfg.final ? t('torneo.final') : t('torneo.roundOf', { n: tor.indice + 1, total: tor.total })}`
+        + `<small>${t('torneo.vs', { name: t(`torneo.r${tor.indice}.name`) })}</small>`
+        + `<em>${t(`torneo.r${tor.indice}.phrase`)}</em>`
       : '';
     this._set('torneoIntro', intro, (v) => { el.torneoIntro.innerHTML = v; });
 
@@ -238,7 +243,7 @@ export class Hud {
     const rp = world.replay;
     const el = this.el;
     this._set('rwho', rp.scorer, (s) => {
-      el.replayWho.textContent = s === 'p1' ? 'Tu gol' : 'Gol del rival';
+      el.replayWho.textContent = s === 'p1' ? t('replay.you') : t('replay.rival');
       el.replayWho.className = s === 'p1' ? 'p1' : 'p2';
     });
     el.replayProg.style.width = (rp.progress * 100).toFixed(1) + '%';
@@ -251,13 +256,13 @@ export class Hud {
 
     let title, cls;
     if (world.botsMode) {
-      title = m.winner === 'p1' ? 'GANA AZUL' : 'GANA ROJO';
+      title = m.winner === 'p1' ? t('game.blueWins') : t('game.redWins');
       cls = m.winner === 'p1' ? 'win' : 'lose';
     } else if (m.winner === 'p1') {
-      title = tr?.campeon ? '¡CAMPEÓN!' : tr ? '¡RONDA SUPERADA!' : '¡VICTORIA!';
+      title = tr?.campeon ? t('game.champion') : tr ? t('game.roundWon') : t('game.victory');
       cls = 'win';
     } else {
-      title = 'DERROTA'; cls = 'lose';
+      title = t('game.defeat'); cls = 'lose';
     }
     this._set('endTitle', title, (v) => {
       el.endTitle.textContent = v;
@@ -269,9 +274,9 @@ export class Hud {
     // Torneo: un solo camino (tocá para seguir) — sin botones.
     this._show('endButtons', el.endButtons, !tr);
     const tap = tr
-      ? (tr.campeon ? 'Tocá para reclamar tu trofeo 🏆'
-        : tr.win ? `Tocá para la Ronda ${tr.proxima + 1}`
-        : 'Tocá para reintentar la ronda')
+      ? (tr.campeon ? t('end.tap.trophy')
+        : tr.win ? t('end.tap.next', { n: tr.proxima + 1 })
+        : t('end.tap.retry'))
       : '';
     this._set('endTap', tap, (v) => { el.endTap.textContent = v; });
 
@@ -281,13 +286,13 @@ export class Hud {
     const coins = world.coinsEarned ? `+${world.coinsEarned} 🪙   ·   ` : '';
     const stats = st
       ? coins + (st.streak > 0
-        ? `Racha: ${st.streak} 🔥   ·   Mejor racha: ${st.bestStreak}`
-        : `Victorias: ${st.wins} · Derrotas: ${st.losses}   ·   Mejor racha: ${st.bestStreak}`)
+        ? t('end.streak', { n: st.streak, best: st.bestStreak })
+        : t('end.wl', { w: st.wins, l: st.losses, best: st.bestStreak }))
       : '';
     this._set('endStats', stats, (v) => { el.endStats.textContent = v; });
 
-    const rec = st?.newBestStreak ? '🏆 ¡Nueva mejor racha!'
-      : st?.newBiggestWin ? '🏆 ¡Tu victoria más aplastante!' : '';
+    const rec = st?.newBestStreak ? t('end.newStreak')
+      : st?.newBiggestWin ? t('end.newBiggest') : '';
     this._set('endRecord', rec, (v) => { el.endRecord.textContent = v; });
   }
 }

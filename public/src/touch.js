@@ -7,6 +7,8 @@
 // pulgares ya es mucho apuntar + acelerar + golpear). El joystick no fija
 // una posición: aparece donde tocás, como en la mayoría de los shooters
 // móviles — más cómodo que perseguir un círculo fijo con el pulgar.
+import { t } from './i18n/i18n.js';
+
 export class TouchControls {
   constructor(canvas) {
     this.canvas = canvas;
@@ -177,8 +179,8 @@ export class TouchControls {
       ctx.beginPath(); ctx.arc(this.joyKnob.x, this.joyKnob.y, 26, 0, 7); ctx.fill();
     }
 
-    this._button(ctx, L.thrust, this.thrust, 'GAS', '#3fc0ff');
-    this._button(ctx, L.hit, this.hit, 'GOLPE', '#ffd76a');
+    this._button(ctx, L.thrust, this.thrust, t('touch.gas'), '#3fc0ff');
+    this._button(ctx, L.hit, this.hit, t('touch.hit'), '#ffd76a');
 
     // Botón de pausa: dos barras, discreto
     ctx.globalAlpha = 0.6;

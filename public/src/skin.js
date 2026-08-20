@@ -16,6 +16,7 @@
 // Convención del PNG: el dibujo mira A LA DERECHA, con el pivote en el borde
 // izquierdo y centrado en vertical. Un brazo se dibuja horizontal, el hombro
 // pegado al borde izquierdo. Así el motor lo rota sin que tengas que pensar.
+import { Storage } from './storage/storage.js';
 export const BONES = {
   capa:      { from: 'chest',  to: 'pelvis' },
   piernaB:   { from: 'pelvis', to: 'kneeB'  },
@@ -269,7 +270,7 @@ const STORE_KEY = 'escoba.skin.v1';
 
 export function saveSkin(skin) {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(skin.toJSON()));
+    Storage.set(STORE_KEY, JSON.stringify(skin.toJSON()));
     return true;
   } catch (e) {
     // Los data URL de varios PNG grandes pueden pasarse de la cuota
@@ -280,7 +281,7 @@ export function saveSkin(skin) {
 
 export async function loadSkin() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = Storage.get(STORE_KEY);
     if (!raw) return null;
     return await SpriteSkin.fromJSON(JSON.parse(raw));
   } catch (e) {
@@ -290,7 +291,7 @@ export async function loadSkin() {
 }
 
 export function clearSkin() {
-  try { localStorage.removeItem(STORE_KEY); } catch {}
+  try { Storage.remove(STORE_KEY); } catch {}
 }
 
 // ══ ESCOBA ════════════════════════════════════════════════════════════════
@@ -415,7 +416,7 @@ const BROOM_KEY = 'escoba.broom.v1';
 
 export function saveBroomSkin(skin) {
   try {
-    localStorage.setItem(BROOM_KEY, JSON.stringify(skin.toJSON()));
+    Storage.set(BROOM_KEY, JSON.stringify(skin.toJSON()));
     return true;
   } catch (e) {
     console.warn('No se pudo guardar la escoba:', e);
@@ -425,7 +426,7 @@ export function saveBroomSkin(skin) {
 
 export async function loadBroomSkin() {
   try {
-    const raw = localStorage.getItem(BROOM_KEY);
+    const raw = Storage.get(BROOM_KEY);
     if (!raw) return null;
     return await BroomSkin.fromJSON(JSON.parse(raw));
   } catch (e) {
@@ -435,5 +436,5 @@ export async function loadBroomSkin() {
 }
 
 export function clearBroomSkin() {
-  try { localStorage.removeItem(BROOM_KEY); } catch {}
+  try { Storage.remove(BROOM_KEY); } catch {}
 }

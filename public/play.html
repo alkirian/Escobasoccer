@@ -74,13 +74,13 @@
       <div class="crest p1"><span id="scoreP1">0</span></div>
       <div class="mid">
         <b id="clock">2:30</b>
-        <small id="clockSub">TÚ · RIVAL</small>
+        <small id="clockSub" data-i18n="hud.you_rival">TÚ · RIVAL</small>
       </div>
       <div class="crest p2"><span id="scoreP2">0</span></div>
     </div>
 
     <!-- Práctica: reemplaza al marcador -->
-    <div class="practice glass" id="practiceTop">🎯 PRÁCTICA — cancha libre</div>
+    <div class="practice glass" id="practiceTop" data-i18n="hud.practice">🎯 PRÁCTICA — cancha libre</div>
 
     <!-- Recursos abajo a la izquierda: dash + energía -->
     <div id="resources">
@@ -88,11 +88,11 @@
         <span class="bolt" id="bolt0">⚡</span>
         <span class="bolt" id="bolt1">⚡</span>
         <span class="bolt hide" id="bolt2">⚡</span>
-        <span class="reskey" id="dashLabel">ESPACIO</span>
+        <span class="reskey" id="dashLabel" data-i18n="hud.space">ESPACIO</span>
       </div>
       <div class="energywrap" id="energyWrap">
         <div class="energybar"><i id="energyFill"></i></div>
-        <span class="reskey" id="energyLabel">ENERGÍA · SHIFT</span>
+        <span class="reskey" id="energyLabel" data-i18n="hud.energy">ENERGÍA · SHIFT</span>
       </div>
     </div>
 
@@ -107,44 +107,44 @@
     <div class="coach" id="coachPill">
       <kbd id="coachKey">CLICK</kbd><span id="coachText"></span>
     </div>
-    <div class="coachflash" id="coachFlash">✓ ¡Bien!</div>
+    <div class="coachflash" id="coachFlash" data-i18n="coach.well">✓ ¡Bien!</div>
 
     <!-- Repetición: franjas de transmisión + progreso -->
     <div id="replayui">
       <div class="rbar top">
-        <span class="rec"></span> REPETICIÓN
+        <span class="rec"></span> <span data-i18n="replay.label">REPETICIÓN</span>
         <b id="replayWho"></b>
         <i class="rprog"><u id="replayProg"></u></i>
-        <span class="rskip">ESPACIO&nbsp; saltear</span>
+        <span class="rskip" data-i18n="replay.skip">ESPACIO&nbsp; saltear</span>
       </div>
       <div class="rbar bottom"></div>
     </div>
 
     <!-- Pausa -->
     <div class="overlay" id="pauseScreen">
-      <h1>PAUSA</h1>
+      <h1 data-i18n="pause.title">PAUSA</h1>
       <div class="btncol">
-        <button class="btn gold" data-act="continuar">Continuar</button>
-        <button class="btn" data-act="controles">Controles</button>
-        <button class="btn" data-act="menu">Menú principal</button>
-        <button class="btn danger" data-act="salir">Salir</button>
+        <button class="btn gold" data-act="continuar" data-i18n="pause.continue">Continuar</button>
+        <button class="btn" data-act="controles" data-i18n="pause.controls">Controles</button>
+        <button class="btn" data-act="menu" data-i18n="pause.menu">Menú principal</button>
+        <button class="btn danger" data-act="salir" data-i18n="pause.exit">Salir</button>
       </div>
-      <p class="note" id="closeNote">Tu navegador no deja cerrar la pestaña desde acá — cerrala con Ctrl+W</p>
-      <p class="foot">ESC continúa · R reinicia el partido</p>
+      <p class="note" id="closeNote" data-i18n="pause.closeNote">Tu navegador no deja cerrar la pestaña desde acá — cerrala con Ctrl+W</p>
+      <p class="foot" data-i18n="pause.foot">ESC continúa · R reinicia el partido</p>
     </div>
 
     <!-- Cómo se juega -->
     <div class="overlay" id="controlsScreen">
-      <h1>CÓMO SE JUEGA</h1>
+      <h1 data-i18n="controls.title">CÓMO SE JUEGA</h1>
       <div class="keylist">
-        <div><kbd>MOUSE</kbd><span>Apuntás y movés la escoba</span></div>
-        <div><kbd>CLICK</kbd><span>Mantené y soltá: golpe (más carga = más fuerza)</span></div>
-        <div><kbd>ESPACIO</kbd><span>Dash — tenés 2 cargas</span></div>
-        <div><kbd>SHIFT</kbd><span>Propulsión, gasta energía</span></div>
-        <div><kbd>ESC</kbd><span>Pausa</span></div>
+        <div><kbd data-i18n="key.mouse">MOUSE</kbd><span data-i18n="controls.mouse">Apuntás y movés la escoba</span></div>
+        <div><kbd data-i18n="key.click">CLICK</kbd><span data-i18n="controls.click">Mantené y soltá: golpe (más carga = más fuerza)</span></div>
+        <div><kbd data-i18n="key.space">ESPACIO</kbd><span data-i18n="controls.space">Dash — tenés 2 cargas</span></div>
+        <div><kbd data-i18n="key.shift">SHIFT</kbd><span data-i18n="controls.shift">Propulsión, gasta energía</span></div>
+        <div><kbd data-i18n="key.esc">ESC</kbd><span data-i18n="controls.esc">Pausa</span></div>
       </div>
-      <button class="btn gold big" id="btnCloseControls">▶ ¡A JUGAR!</button>
-      <p class="foot">Click o ENTER para empezar</p>
+      <button class="btn gold big" id="btnCloseControls" data-i18n="controls.go">▶ ¡A JUGAR!</button>
+      <p class="foot" data-i18n="controls.foot">Click o ENTER para empezar</p>
     </div>
 
     <!-- Fin de partido -->
@@ -152,8 +152,8 @@
       <h1 id="endTitle">¡VICTORIA!</h1>
       <div class="finalscore" id="endScore">0 — 0</div>
       <div class="btnrow" id="endButtons">
-        <button class="btn gold big" data-act="revancha">⚔ Revancha</button>
-        <button class="btn" data-act="menu">Menú</button>
+        <button class="btn gold big" data-act="revancha" data-i18n="end.rematch">⚔ Revancha</button>
+        <button class="btn" data-act="menu" data-i18n="end.menu">Menú</button>
       </div>
       <p class="tapline" id="endTap"></p>
       <p class="statline" id="endStats"></p>
@@ -444,7 +444,7 @@
   </div>
   <div id="rotate-hint">
     <div class="icon">🧹↻</div>
-    <p>Girá el teléfono — la cancha es horizontal</p>
+    <p data-i18n="rotate.hint">Girá el teléfono — la cancha es horizontal</p>
   </div>
   <script type="module" src="src/main.js"></script>
   <script>

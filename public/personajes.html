@@ -183,8 +183,8 @@
 </style>
 </head>
 <body>
-  <h1>Elegí tu <span>personaje</span></h1>
-  <p class="sub">Todos vuelan igual — lo que cambia es quién sos ahí arriba.</p>
+  <h1 data-i18n-html="chars.title">Elegí tu <span>personaje</span></h1>
+  <p class="sub" data-i18n="chars.sub">Todos vuelan igual — lo que cambia es quién sos ahí arriba.</p>
   <div class="carousel">
     <button class="arrow" id="prev" aria-label="Anterior">‹</button>
     <div class="track-wrap"><div class="grid" id="grid"></div></div>
@@ -192,13 +192,13 @@
   </div>
   <div class="dots" id="dots"></div>
   <div class="ch-wrap">
-    <h2>🏅 Desafíos</h2>
+    <h2 data-i18n="chars.challenges">🏅 Desafíos</h2>
     <div class="ch-row" id="challenges"></div>
   </div>
   <div class="actions">
-    <a class="btn" href="index.html">← Menú</a>
-    <a class="btn" href="veditor.html">Crear el mío (editor)</a>
-    <a class="btn primary" href="jugar.html">Jugar →</a>
+    <a class="btn" href="index.html" data-i18n="chars.menu">← Menú</a>
+    <a class="btn" href="veditor.html" data-i18n="chars.editor">Crear el mío (editor)</a>
+    <a class="btn primary" href="jugar.html" data-i18n="chars.play">Jugar →</a>
   </div>
   <script type="module" src="src/personajes.js"></script>
 </body>

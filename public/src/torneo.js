@@ -6,6 +6,7 @@
 // El progreso vive en localStorage; la página de preparación muestra el
 // bracket y play.html lee de acá qué ronda toca (sin params frágiles).
 
+import { Storage } from './storage/storage.js';
 export const RONDAS = [
   {
     rival: 'zefir', nombre: 'Zefir el Vientoveloz',
@@ -44,13 +45,13 @@ const FRESH = {
 
 export function loadTorneo() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = Storage.get(KEY);
     return raw ? { ...FRESH, ...JSON.parse(raw) } : { ...FRESH };
   } catch { return { ...FRESH }; }
 }
 
 function save(t) {
-  try { localStorage.setItem(KEY, JSON.stringify(t)); } catch { /* nada */ }
+  try { Storage.set(KEY, JSON.stringify(t)); } catch { /* nada */ }
 }
 
 // La ronda que corresponde jugar ahora (config completa).

@@ -8,6 +8,9 @@ import { ROSTER, CHARACTERS } from './characters.js';
 import { statsHTML } from './statsui.js';
 import { pasivaOf } from './stats_chars.js';
 import { isUnlocked, COSTS, coins, tryUnlock } from './roster.js';
+import { Storage } from './storage/storage.js';
+import { t, applyI18n } from './i18n/i18n.js';
+
 import {
   CHALLENGES, isDone, unlockedPalettes, selectedPalettes, selectPalette,
 } from './challenges.js';
@@ -27,8 +30,10 @@ rd.skin = null; rd.broomSkin = null; rd.vskin = null;
 const noWorld = { playerA: null, botsMode: true };
 
 let selected = (() => {
-  try { return localStorage.getItem(CHAR_KEY) || 'mago'; } catch { return 'mago'; }
+  try { return Storage.get(CHAR_KEY) || 'mago'; } catch { return 'mago'; }
 })();
+
+applyI18n();
 
 const grid = document.getElementById('grid');
 const cards = [];
@@ -40,18 +45,18 @@ for (const hero of ROSTER) {
   card.className = 'card' + (hero.id === selected ? ' on' : '') + (libre ? '' : ' locked');
   card.innerHTML = `
     <canvas width="470" height="420"></canvas>
-    <div class="nom">${libre ? '' : '🔒 '}${hero.nombre} <small>${hero.titulo}</small></div>
-    <div class="rol">${hero.rol}</div>
-    <p class="bio">${hero.bio}</p>
+    <div class="nom">${libre ? '' : '🔒 '}${hero.nombre} <small>${t(`hero.${hero.id}.title`)}</small></div>
+    <div class="rol">${t(`hero.${hero.id}.role`)}</div>
+    <p class="bio">${t(`hero.${hero.id}.bio`)}</p>
     ${statsHTML(hero.id)}
-    ${pas ? `<div class="pasiva">${pas.icono} <b>${pas.nombre}</b> — ${pas.desc}</div>` : ''}
+    ${pas ? `<div class="pasiva">${pas.icono} <b>${t(`pasiva.${hero.id}.name`)}</b> — ${t(`pasiva.${hero.id}.desc`)}</div>` : ''}
     <div class="pal-row"></div>
-    ${libre ? '<div class="sel">✓ Seleccionado</div>'
-            : `<button class="buy">Desbloquear por ${COSTS[hero.id] ?? '?'} 🪙</button>`}`;
+    ${libre ? `<div class="sel">${t('chars.selected')}</div>`
+            : `<button class="buy">${t('prep.unlockFor', { cost: COSTS[hero.id] ?? '?' })}</button>`}`;
   card.onclick = () => {
     if (!isUnlocked(hero.id)) return;   // bloqueado: no se selecciona
     selected = hero.id;
-    try { localStorage.setItem(CHAR_KEY, hero.id); } catch { /* sin storage */ }
+    try { Storage.set(CHAR_KEY, hero.id); } catch { /* sin storage */ }
     for (const c of cards) c.el.classList.toggle('on', c.hero.id === hero.id);
   };
   // Compra desde la tarjeta: si alcanzan las monedas, se desbloquea en el
@@ -61,7 +66,7 @@ for (const hero of ROSTER) {
     const cost = COSTS[hero.id] ?? Infinity;
     if (coins() < cost) {
       buyBtn.disabled = true;
-      buyBtn.textContent = `🔒 Te faltan ${cost - coins()} 🪙`;
+      buyBtn.textContent = t('prep.missing', { n: cost - coins() });
     }
     buyBtn.onclick = (e) => {
       e.stopPropagation();
@@ -82,8 +87,8 @@ for (const hero of ROSTER) {
   const palRow = card.querySelector('.pal-row');
   const unlocked = unlockedPalettes(hero.id);
   if (unlocked.length && CHARACTERS[hero.id]?.palettes) {
-    const opciones = [{ id: null, nombre: 'Base' },
-                      ...unlocked.map((p) => ({ id: p.id, nombre: p.nombre.split(' ').pop() }))];
+    const opciones = [{ id: null, nombre: t('palette.base') },
+                      ...unlocked.map((p) => ({ id: p.id, nombre: t(`pal.${p.id}.chip`) }))];
     for (const op of opciones) {
       const chip = document.createElement('button');
       chip.className = 'pal' + ((pl.paletteId ?? null) === op.id ? ' on' : '');
@@ -115,10 +120,12 @@ for (const hero of ROSTER) {
     for (const c of CHALLENGES) {
       const row = document.createElement('div');
       row.className = 'ch' + (isDone(c.id) ? ' done' : '');
-      const premio = c.palette ? `Paleta: ${c.palette.nombre}` : 'Medalla';
+      const premio = c.palette
+        ? t('reward.palette', { name: t(`pal.${c.palette.id}.name`) })
+        : t('reward.medal');
       row.innerHTML = `
         <div class="ico">${c.icono}</div>
-        <div><div class="tit">${c.titulo}</div><div class="des">${c.desc}</div></div>
+        <div><div class="tit">${t(`ch.${c.id}.title`)}</div><div class="des">${t(`ch.${c.id}.desc`)}</div></div>
         <div class="premio">${premio}</div>`;
       box.appendChild(row);
     }
