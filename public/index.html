@@ -142,6 +142,17 @@
     }
     footer a { color: var(--muted); text-decoration: none; }
     footer a:hover { color: var(--text); }
+
+    /* Monedas: chip fijo arriba a la derecha, discreto pero siempre visible */
+    #coinChip {
+      position: fixed; top: 16px; right: 16px;
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 14px; border-radius: 999px;
+      border: 1px solid var(--line);
+      background: linear-gradient(165deg, #1c2244 0%, #141830 100%);
+      color: var(--accent); font: 700 15px system-ui;
+      box-shadow: 0 4px 14px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);
+    }
   </style>
   <script>
     // roundRect llegó a Safari 16 / Firefox 112 (lo usan las otras páginas
@@ -161,11 +172,13 @@
   </script>
 </head>
 <body>
+  <div id="coinChip"><span>🪙</span> <span id="coinCount">0</span></div>
+
   <h1 class="logo"><span class="escoba">🧹</span> Escoba <span class="v">Voladora</span></h1>
   <p class="tag" data-i18n="menu.tagline">Fútbol de magos. Física alocada. Cero reglas elegantes.</p>
 
   <nav>
-    <a class="primary" href="jugar.html"><span class="ico">▶</span> <span data-i18n="menu.play">JUGAR</span> <small data-i18n="menu.play.sub">1v1 · 2v2 · torneo</small></a>
+    <a class="primary" href="modo.html"><span class="ico">▶</span> <span data-i18n="menu.play">JUGAR</span> <small data-i18n="menu.play.sub">1v1 · 2v2 · torneo</small></a>
     <a href="personajes.html"><span class="ico">🧙</span> <span data-i18n="menu.characters">Personajes</span> <small data-i18n="menu.characters.sub">héroes y paletas</small></a>
     <a href="trofeos.html"><span class="ico">🏆</span> <span data-i18n="menu.trophies">Trofeos</span> <small data-i18n="menu.trophies.sub">desafíos y récords</small></a>
     <a href="opciones.html"><span class="ico">⚙️</span> <span data-i18n="menu.settings">Opciones</span> <small data-i18n="menu.settings.sub">sonido y controles</small></a>
@@ -173,15 +186,15 @@
 
   <footer>
     <span>v1.1</span>
-    <a href="veditor.html" data-i18n="menu.editor">✏️ Crear mi héroe</a>
-    <a href="https://github.com/alkirian/Escobasoccer" target="_blank" rel="noopener">hecho por alkirian</a>
   </footer>
 
   <script type="module">
     import { applyI18n, t } from './src/i18n/i18n.js';
     import { BUILD_CONFIG } from './src/build_config.js';
     import { isFirstEver } from './src/stats.js';
+    import { coins } from './src/roster.js';
     applyI18n();
+    document.getElementById('coinCount').textContent = coins();
 
     // ── Modo portal (CrazyGames) ─────────────────────────────────────────
     // Antes del primer partido de la vida, el menú entero es ruido: un solo

@@ -51,8 +51,13 @@
                 inset 0 1px 0 rgba(255,255,255,.5);
   }
 
-  /* Héroe */
-  .hero-box { display: flex; align-items: center; gap: 10px;
+  /* Héroe. Antes `align-items: center` centraba las flechas respecto de TODA
+     la caja .hero-card, y esa caja crecía o encogía según el personaje
+     (candado visible, largo del texto de pasiva, cantidad de paletas) — las
+     flechas "saltaban" de lugar al cambiar de personaje. Ahora se alinean al
+     techo y JS las reposiciona (arrows-align abajo) para quedar centradas
+     sólo respecto del CANVAS, que es el único elemento de tamaño estable. */
+  .hero-box { display: flex; align-items: flex-start; gap: 10px;
               flex: 1 1 auto; min-height: 0; }
   .arrow {
     font-size: 26px; width: 52px; height: 52px; line-height: 1;
@@ -329,7 +334,7 @@
   </div>
 
   <button class="go" id="btnGo" data-i18n="prep.go">▶ ¡A VOLAR!</button>
-  <a class="volver" href="index.html" data-i18n="prep.back">← Volver al menú</a>
+  <a class="volver" id="volver" href="index.html" data-i18n="prep.back">← Volver al menú</a>
 
   <script type="module" src="src/jugar.js"></script>
 </body>

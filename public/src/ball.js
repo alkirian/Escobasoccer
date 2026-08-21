@@ -52,8 +52,23 @@ export class Ball {
       / (spAntes * spDespues);
     if (dot > -C.minDot) return 0;    // no es devolución: no encadena
 
+    const yaEncadenando = this.chainT > 0;
+
+    // Para llegar al ZIGZAG (nivel 2+) no alcanza con "devolverla rápido":
+    // tiene que ser un jugador B respondiéndole a un jugador A, hacia el lado
+    // contrario, y CON MÁS FUERZA que el golpe que recibió. Antes esto último
+    // no se pedía — bastaba con superar minOut (fijo), así que cualquier
+    // segunda devolución medio decente disparaba el zigzag (medido: 5 veces en
+    // 180 s de partido, uno cada ~36 s). Ahora, a partir del segundo eslabón,
+    // el ángulo de devolución tiene que ser bastante más de frente y la
+    // pelota tiene que salir claramente más fuerte de lo que entró.
+    if (yaEncadenando) {
+      if (dot > -C.minDotChain) return 0;         // devolución poco de frente
+      if (spDespues < spAntes * C.minOutMul) return 0;   // no salió más fuerte
+    }
+
     // Dentro de la ventana suma eslabón; fuera, arranca de nuevo en 1.
-    this.chain = this.chainT > 0 ? Math.min(this.chain + 1, C.maxLevel) : 1;
+    this.chain = yaEncadenando ? Math.min(this.chain + 1, C.maxLevel) : 1;
     this.chainT = C.window;
     this.chainFlash = 1;
 

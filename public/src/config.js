@@ -189,7 +189,14 @@ export const CFG = {
       capBonus: 0.55,  // cuánto sube el techo de velocidad por eslabón
       minIn:    620,   // la pelota tenía que venir rápido de verdad
       minOut:   700,   // y salir rápido: un roce no cuenta
-      minDot:   0.35,  // cuán "de frente" hay que devolverla (0..1)
+      minDot:   0.35,  // cuán "de frente" hay que devolverla (0..1) — para el nivel 1
+      // A partir del SEGUNDO eslabón (el que dispara el zigzag) ya no alcanza
+      // con devolverla rápido: tiene que ser un jugador respondiéndole a otro,
+      // más de frente y con más fuerza que el golpe recibido. Medido antes de
+      // este cambio: el zigzag salía cada ~36 s de partido, mucho más seguido
+      // de lo que "difícil de alcanzar" pide.
+      minDotChain: 0.62, // devolución bastante más de frente para escalar a zigzag
+      minOutMul:   1.15, // el golpe de vuelta tiene que salir ≥15% más fuerte que el que entró
       // El zigzag es un DESVÍO ANGULAR alrededor de la recta del disparo, con
       // tope. Así la pelota serpentea pero siempre avanza hacia donde la
       // mandaron: da sensación de fuerza, no de pelota descontrolada.

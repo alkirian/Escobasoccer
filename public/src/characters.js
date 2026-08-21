@@ -154,6 +154,9 @@ const VALKA = {
   palettes: {
     base:     { STEEL: '#b9c2cf', STEEL_D: '#6b7686', LEATHER: '#5a4030', HAIR: '#c96f2f' },
     nocturna: { STEEL: '#5f6b80', STEEL_D: '#39414f', LEATHER: '#2f2a3a', HAIR: '#e8e2d0' },
+    // Desafío "Escuadrón" (ganar un 2v2 sin recibir goles): armadura dorada,
+    // como si la hubiera forjado el sol del mediodía.
+    solar:    { STEEL: '#e8c878', STEEL_D: '#a8843a', LEATHER: '#7a5228', HAIR: '#fff3c4' },
   },
   draw(ctx, r, player, color, dark, world, fx) {
     const p = player.rider.points, b = player.broom, cape = player.rider.cape;
@@ -482,8 +485,11 @@ const MORDRAK = {
   // "Espectro": túnica pálida y amuletos oscuros — el negativo del brujo.
   // Se desbloquea con el desafío "Imparable".
   palettes: {
-    base:     { ROBE: '#3b2b52', ROBE_D: '#241a38', BONE: '#cfc4a4' },
-    espectro: { ROBE: '#8f8ca0', ROBE_D: '#5f5c72', BONE: '#2a2136' },
+    base:           { ROBE: '#3b2b52', ROBE_D: '#241a38', BONE: '#cfc4a4' },
+    espectro:       { ROBE: '#8f8ca0', ROBE_D: '#5f5c72', BONE: '#2a2136' },
+    // Desafío "Paciencia infinita" (ganar sin dashear ni una vez): la túnica
+    // se apaga a ceniza — el pantano después de que el fuego pasó.
+    mordrak_ceniza: { ROBE: '#4a4a4e', ROBE_D: '#2a2a2e', BONE: '#9a9488' },
   },
   draw(ctx, r, player, color, dark, world, fx) {
     const p = player.rider.points, b = player.broom, cape = player.rider.cape;
@@ -763,8 +769,12 @@ const IZAR = {
   // "Inverso": fuego y hielo intercambiados — la cresta arde en azul y la
   // cola de la escoba es de brasas. Se desbloquea con "Piromanía".
   palettes: {
-    base:    { ROBE: '#4a3f6e', FIRE: '#ff8a3c', FIRE2: '#ffd76a', ICE: '#7fd8ff', ICE2: '#e8f8ff' },
-    inverso: { ROBE: '#3f4a6e', FIRE: '#7fd8ff', FIRE2: '#e8f8ff', ICE: '#ff8a3c', ICE2: '#ffd76a' },
+    base:       { ROBE: '#4a3f6e', FIRE: '#ff8a3c', FIRE2: '#ffd76a', ICE: '#7fd8ff', ICE2: '#e8f8ff' },
+    inverso:    { ROBE: '#3f4a6e', FIRE: '#7fd8ff', FIRE2: '#e8f8ff', ICE: '#ff8a3c', ICE2: '#ffd76a' },
+    // Desafío "Equilibrio perfecto" (gol de fuego en 2v2): el día que las
+    // dos manos por fin coinciden — fuego y hielo se funden en el mismo
+    // violeta, ninguno gana.
+    equilibrio: { ROBE: '#3a2f52', FIRE: '#b88aff', FIRE2: '#d8bfff', ICE: '#8a7aff', ICE2: '#c4b8ff' },
   },
   draw(ctx, r, player, color, dark, world, fx) {
     const p = player.rider.points, b = player.broom;
@@ -1059,8 +1069,11 @@ const ZEFIR = {
        'escribieran. Odia frenar — frenar es admitir que el viento ganó.',
   // "Escarlata": el uniforme del correo urgente. Desafío "Cazador".
   palettes: {
-    base:      { VEST: '#2f6157', PANTS: '#c8a878', WRAP: '#e8e0cc', BRASS: '#d8a848' },
-    escarlata: { VEST: '#7a2f38', PANTS: '#4a4358', WRAP: '#e8e0cc', BRASS: '#e8c25a' },
+    base:           { VEST: '#2f6157', PANTS: '#c8a878', WRAP: '#e8e0cc', BRASS: '#d8a848' },
+    escarlata:      { VEST: '#7a2f38', PANTS: '#4a4358', WRAP: '#e8e0cc', BRASS: '#e8c25a' },
+    // Desafío "Reflejos" (atrapar al fugitivo en menos de 3 s): el uniforme
+    // gris tormenta del correo que sale con cualquier clima.
+    zefir_tormenta: { VEST: '#4a5568', PANTS: '#8a94a8', WRAP: '#d0d8e0', BRASS: '#b8c0d0' },
   },
   draw(ctx, r, player, color, dark, world, fx) {
     const p = player.rider.points, b = player.broom, cape = player.rider.cape;
@@ -1515,11 +1528,15 @@ const PETRA = {
        'flota, pero nadie se lo dijo a tiempo. Lenta para hablar, imposible ' +
        'de frenar.',
   palettes: {
-    base: { STONE: '#8d8a96', STONE_D: '#5f5c6a', MOSS: '#5a7a4a' },
+    base:  { STONE: '#8d8a96', STONE_D: '#5f5c6a', MOSS: '#5a7a4a' },
+    // Desafío "Aguante" (5 victorias en 2v2): piedra pálida, casi caliza —
+    // como si la golem llevara mil años más encima.
+    fosil: { STONE: '#d8d2c0', STONE_D: '#a89f88', MOSS: '#8a9878' },
   },
   draw(ctx, r, player, color, dark, world, fx) {
     const p = player.rider.points, b = player.broom, cape = player.rider.cape;
-    const { STONE, STONE_D, MOSS } = this.palettes.base;
+    const { STONE, STONE_D, MOSS } =
+      this.palettes[player.paletteId] ?? this.palettes.base;
     const boost = b.boostPower || 0;
 
     // Escombros orbitando la espalda (la cadena de la capa): pedruscos
@@ -1747,10 +1764,14 @@ const HILARIA = {
        'misma sonrisa.',
   palettes: {
     base: { SHAWL: '#a34f5f', SHAWL_D: '#7a3a48', DRESS: '#4a4e6e', HAIR: '#e8e2d0' },
+    // Desafío "Coleccionista" (10 orbes fugitivos atrapados en total): la
+    // bufanda pierde el color, como si fuera de un invierno mucho más viejo.
+    hilaria_ceniza: { SHAWL: '#6b6b78', SHAWL_D: '#4a4a54', DRESS: '#2e303e', HAIR: '#c8c4b8' },
   },
   draw(ctx, r, player, color, dark, world, fx) {
     const p = player.rider.points, b = player.broom, cape = player.rider.cape;
-    const { SHAWL, SHAWL_D, DRESS, HAIR } = this.palettes.base;
+    const { SHAWL, SHAWL_D, DRESS, HAIR } =
+      this.palettes[player.paletteId] ?? this.palettes.base;
 
     // Lana: una hebra del color del equipo que termina en un ovillo que se
     // hamaca. Nadie más arrastra su tejido por la cancha.
@@ -2044,10 +2065,15 @@ const VENDAVAL = {
        'ni él.',
   palettes: {
     base: { COAT: '#8a2f36', COAT_D: '#5e1f26', GOLD: '#d8a848', SHIRT: '#e8e0cc', BEARD: '#3a2a20' },
+    // Desafío "Abordaje" (gol a menos de 1 s de un dash): abrigo azul
+    // tormenta con plata en vez de rojo y oro — como si lo hubiera
+    // sorprendido el peor temporal de su vida y no le hubiera importado.
+    vendaval_tormenta: { COAT: '#2f3f5a', COAT_D: '#1e2a3e', GOLD: '#b8c4d8', SHIRT: '#d0d8e0', BEARD: '#2a2a30' },
   },
   draw(ctx, r, player, color, dark, world, fx) {
     const p = player.rider.points, b = player.broom, cape = player.rider.cape;
-    const { COAT, COAT_D, GOLD, SHIRT, BEARD } = this.palettes.base;
+    const { COAT, COAT_D, GOLD, SHIRT, BEARD } =
+      this.palettes[player.paletteId] ?? this.palettes.base;
     const spd = Math.hypot(b.vel.x, b.vel.y);
 
     // Faldón del abrigo flameando (la cadena de la capa), con ribete dorado
@@ -2401,10 +2427,14 @@ const SILVANO = {
        'árbol dijo que sí. Las mariposas lo siguen porque huele a primavera.',
   palettes: {
     base: { ROBE: '#6b5a3a', LEAF: '#4a7a3a', LEAF2: '#6a9a4a', ANTLER: '#d8cdb0' },
+    // Desafío "Sin gastar nada" (ganar sin usar propulsión mágica): las
+    // hojas verdes se vuelven naranjas y rojas — el mismo bosque, en otoño.
+    otonio: { ROBE: '#5a4530', LEAF: '#c85a2a', LEAF2: '#e8942a', ANTLER: '#c4b090' },
   },
   draw(ctx, r, player, color, dark, world, fx) {
     const p = player.rider.points, b = player.broom, cape = player.rider.cape;
-    const { ROBE, LEAF, LEAF2, ANTLER } = this.palettes.base;
+    const { ROBE, LEAF, LEAF2, ANTLER } =
+      this.palettes[player.paletteId] ?? this.palettes.base;
     const spd = Math.hypot(b.vel.x, b.vel.y);
 
     // Mariposas: dos compañeras que orbitan con aleteo. Una del equipo, una
@@ -2662,10 +2692,14 @@ const FOGON = {
        'gol es una receta: los ingredientes son la pelota, el arco y vos.',
   palettes: {
     base: { WHITES: '#f0ede4', WHITES_D: '#cfc8b8', APRON: '#8a4a3a', STACHE: '#4a3020' },
+    // Desafío "Al límite" (gol con 3 s o menos en el reloj): el gorro y la
+    // ropa de chef, tiznados de negro — la cocina se le incendió otra vez.
+    carbon: { WHITES: '#3a3a3e', WHITES_D: '#232326', APRON: '#5a2820', STACHE: '#1a1210' },
   },
   draw(ctx, r, player, color, dark, world, fx) {
     const p = player.rider.points, b = player.broom, cape = player.rider.cape;
-    const { WHITES, WHITES_D, APRON, STACHE } = this.palettes.base;
+    const { WHITES, WHITES_D, APRON, STACHE } =
+      this.palettes[player.paletteId] ?? this.palettes.base;
     const boost = b.boostPower || 0;
 
     // Vapor: nubes blancas que suben y se disipan (la cadena de la capa).

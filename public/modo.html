@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escoba Voladora — Elegir modo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  :root {
+    --bg: #0a0c18; --panel: #141830; --panel2: #1b2040; --line: #2a3157;
+    --text: #e8ecff; --muted: #8a93be; --accent: #ffd54a;
+  }
+  body {
+    background: radial-gradient(ellipse at 50% -20%, #1a2145 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    height: 100%; overflow: hidden;
+    padding: clamp(14px, 3vh, 26px) 20px;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: clamp(16px, 3.5vh, 30px);
+  }
+  h1 { font: 700 clamp(22px, 4vh, 30px) Georgia, serif; letter-spacing: .02em; text-align: center; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); text-align: center; margin-top: -12px;
+         font-size: clamp(12px, 1.8vh, 14px); }
+
+  /* Grilla de modos: 2x2, cada tarjeta con tamaño fijo garantizado por
+     min-height — así nada se reescala al elegir ni al minimizar la
+     ventana. El bug que se venía arrastrando en jugar.html era justo
+     este: sin un piso de tamaño, el layout respiraba con el contenido. */
+  .modes {
+    display: grid; grid-template-columns: repeat(2, minmax(200px, 260px));
+    gap: clamp(10px, 2vw, 18px);
+  }
+  .mode {
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; text-align: center; text-decoration: none; color: var(--text);
+    min-height: clamp(120px, 18vh, 160px);
+    border: 1px solid transparent; border-radius: 18px; padding: 16px 12px;
+    background:
+      linear-gradient(165deg, #1c2244 0%, #141830 60%, #10142a 100%) padding-box,
+      linear-gradient(160deg, rgba(120,160,255,.35), rgba(60,80,140,.12) 45%, rgba(63,192,255,.22)) border-box;
+    box-shadow: 0 4px 16px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+    transition: transform .15s ease, box-shadow .15s ease;
+    cursor: pointer;
+  }
+  .mode:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 9px 26px rgba(0,0,0,.45), 0 0 20px rgba(63,192,255,.18),
+                inset 0 1px 0 rgba(255,255,255,.09);
+  }
+  .mode .ico { font-size: clamp(28px, 4.5vh, 40px); }
+  .mode .nom { font: 700 clamp(16px, 2.4vh, 20px) Georgia, serif; }
+  .mode .desc { color: var(--muted); font-size: clamp(11px, 1.6vh, 12.5px); }
+
+  .mode.locked {
+    cursor: not-allowed; filter: grayscale(.8) brightness(.6);
+  }
+  .mode.locked:hover { transform: none; box-shadow: 0 4px 16px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06); }
+  .mode .padlock {
+    position: absolute; top: 10px; right: 12px; font-size: 18px; opacity: .85;
+  }
+  .mode .soon {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    font: 700 10px system-ui; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--accent); background: rgba(255,213,74,.12);
+    border: 1px solid rgba(255,213,74,.35); border-radius: 999px;
+    padding: 3px 10px;
+  }
+
+  .volver { color: var(--muted); text-decoration: none; font-size: 13px; }
+  .volver:hover { color: var(--text); }
+</style>
+</head>
+<body>
+  <h1 data-i18n-html="modo.title">Elegí tu <span>modo</span></h1>
+  <p class="sub" data-i18n="modo.sub">Después vas a elegir tu personaje.</p>
+
+  <div class="modes" id="modes"></div>
+
+  <a class="volver" href="index.html" data-i18n="prep.back">← Volver al menú</a>
+
+  <script type="module">
+    import { t, applyI18n } from './src/i18n/i18n.js';
+    applyI18n();
+
+    const MODES = [
+      { id: '1v1', ico: '⚔️', locked: false },
+      { id: '2v2', ico: '🤝', locked: false },
+      { id: 'practica', ico: '🎯', locked: false },
+      // El torneo YA está implementado (bracket de 5 rondas, progreso
+      // persistido) pero se muestra bloqueado hasta que se decida activarlo
+      // en el menú — el código no se tocó, sólo la entrada desde acá.
+      { id: 'torneo', ico: '🏆', locked: true },
+    ];
+
+    const box = document.getElementById('modes');
+    for (const m of MODES) {
+      const a = document.createElement('a');
+      a.className = 'mode' + (m.locked ? ' locked' : '');
+      a.href = m.locked ? '#' : `personajes.html?mode=${m.id}`;
+      if (m.locked) a.onclick = (e) => e.preventDefault();
+      a.innerHTML = `
+        <div class="ico">${m.ico}</div>
+        <div class="nom">${t(`modo.${m.id}.nombre`)}</div>
+        <div class="desc">${t(`modo.${m.id}.desc`)}</div>
+        ${m.locked ? '<div class="padlock">🔒</div><div class="soon">' + t('modo.soon') + '</div>' : ''}`;
+      box.appendChild(a);
+    }
+  </script>
+</body>
+</html>

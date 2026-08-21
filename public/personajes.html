@@ -16,100 +16,82 @@
     background: radial-gradient(ellipse at 50% -20%, #1a2145 0%, var(--bg) 60%);
     color: var(--text);
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-    /* Pantalla completa SIEMPRE: nada de scroll. Antes era `min-height:100vh`
-       y con 10 personajes la página medía 2655 px contra 910 de ventana —
-       1745 px de scroll, y creciendo con cada personaje nuevo. */
-    height: 100%; overflow: hidden;
-    padding: 18px 20px 16px;
-    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    min-height: 100%;
+    padding: clamp(12px, 2.2vh, 20px);
+    display: flex; flex-direction: column; align-items: center; gap: clamp(6px, 1.2vh, 12px);
   }
-  h1 { font: 700 clamp(20px, 3vh, 28px) Georgia, serif; letter-spacing: .02em; }
+  h1 { font: 700 clamp(18px, 3vh, 26px) Georgia, serif; letter-spacing: .02em; text-align: center; }
   h1 span { color: var(--accent); }
-  .sub { color: var(--muted); margin-top: -6px; font-size: clamp(11px, 1.6vh, 14px); }
+  .sub { color: var(--muted); margin-top: -4px; font-size: clamp(11px, 1.5vh, 13px); text-align: center; }
 
-  /* ── Carrusel ───────────────────────────────────────────────────────────
-     Una fila que se desliza en vez de una grilla que crece hacia abajo. El
-     alto de la tarjeta sale de la altura disponible (vh), así entra en
-     cualquier pantalla sin recortar. */
-  .carousel { position: relative; width: 100%; flex: 1; min-height: 0; display: flex;
-              align-items: center; gap: 10px; }
-  .track-wrap { overflow: hidden; flex: 1; min-width: 0; height: 100%;
-                display: flex; align-items: center; }
+  /* ── Grilla ────────────────────────────────────────────────────────────
+     Cards de tamaño fijo (no carrusel): llenan el ancho disponible y, si no
+     entran, se apilan hacia abajo — la página scrollea, no la fila. */
   .grid {
-    display: flex; gap: 14px; height: 100%; align-items: stretch;
-    transition: transform .34s cubic-bezier(.22,.61,.36,1);
-    will-change: transform;
-  }
-  .arrow {
-    flex: none; width: 44px; height: 76px; border-radius: 12px;
-    border: 1px solid var(--line); background: var(--panel); color: var(--text);
-    font: 700 22px system-ui; cursor: pointer; transition: .15s;
-  }
-  .arrow:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  .arrow:disabled { opacity: .28; cursor: default; }
-  /* Puntos de posición */
-  .dots { display: flex; gap: 6px; justify-content: center; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: #2b3157; transition: .15s; }
-  .dot.on { background: var(--accent); width: 20px; border-radius: 4px; }
-  /* Bloqueados + pasivas */
-  .card.locked { filter: grayscale(.75) brightness(.72); }
-  .card.locked:hover { filter: grayscale(.4) brightness(.9); }
-  .card .pasiva {
-    font-size: 12px; color: #cfe0ff; margin: 7px 10px 0;
-    background: rgba(63,192,255,.08); border: 1px solid rgba(63,192,255,.25);
-    border-radius: 9px; padding: 6px 10px;
-  }
-  .card .pasiva b { color: #ffd54a; }
-  .card .buy {
-    display: block; margin: 10px auto 4px;
-    font: 700 13px system-ui; padding: 8px 18px; border-radius: 999px;
-    border: 1px solid transparent;
-    background:
-      linear-gradient(170deg, #ffe98a 0%, #ffd54a 45%, #ffb52e 100%) padding-box,
-      linear-gradient(160deg, #fff3b8, #ff9d2e) border-box;
-    color: #201700; cursor: pointer;
-    box-shadow: 0 3px 12px rgba(255,170,40,.35);
-  }
-  .card .buy:disabled {
-    background: linear-gradient(170deg, #3a3a4a, #262636) padding-box,
-      linear-gradient(160deg, rgba(150,150,180,.3), rgba(80,80,110,.2)) border-box;
-    color: #8a93be; cursor: not-allowed; box-shadow: none;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px; width: 100%; max-width: 1100px;
   }
 
+  /* Card cerrada: retrato + nombre + rol. Tamaño fijo, nunca cambia con el
+     contenido — esto es justo lo que evita el bug de layout que había antes
+     (las flechas de un carrusel viejo saltando de lugar al cambiar de
+     personaje porque el contenedor entero respiraba con el contenido). */
   .card {
+    position: relative;
     background: var(--panel); border: 2px solid var(--line); border-radius: 14px;
-    padding: 10px 10px 12px; cursor: pointer; transition: border-color .15s, box-shadow .15s;
-    display: flex; flex-direction: column; gap: 5px; text-align: center;
-    /* Ancho fijo (el carrusel lo desplaza) y alto que llena la fila. */
-    flex: none; width: 228px; height: 100%; overflow: hidden;
+    cursor: pointer; transition: border-color .15s, box-shadow .15s;
+    aspect-ratio: 3 / 4; overflow: hidden;
+    display: flex; flex-direction: column;
+    text-decoration: none; color: var(--text);
   }
   .card:hover { border-color: #3d4780; }
-  .card.on { border-color: var(--accent); box-shadow: 0 0 22px rgba(255,213,74,.18); }
-  /* El retrato es lo importante de la tarjeta: se le garantiza un mínimo y
-     crece con el espacio que sobre. Sin el `min-height` el flex lo aplastaba
-     a 0 px en pantallas bajas (medido en 1366x640: el resto del contenido
-     sumaba 325 px de 396 y al canvas no le quedaba nada). */
+  .card.on {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(255,213,74,.35), 0 0 22px rgba(255,213,74,.45);
+  }
+  .card.locked { filter: grayscale(.65) brightness(.75); }
+  .card.locked:hover { filter: grayscale(.35) brightness(.92); }
+
+  /* Botón "Ver más": sólo aparece al hover, encima del peek, sin taparlo
+     entero — el click en la CARD selecciona; el click en este botón navega
+     al detalle. */
+  .verMas {
+    position: absolute; top: 8px; right: 8px; z-index: 3;
+    font: 600 10.5px system-ui; padding: 5px 10px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,.25); background: rgba(10,12,24,.72);
+    color: var(--text); text-decoration: none;
+    opacity: 0; pointer-events: none; transition: opacity .15s ease;
+  }
+  .card:hover .verMas { opacity: 1; pointer-events: auto; }
+  .verMas:hover { background: rgba(20,24,48,.9); border-color: var(--accent); color: var(--accent); }
+
   .card canvas {
-    width: 100%; flex: 1 1 auto; min-height: 120px; border-radius: 9px;
+    width: 100%; flex: 1 1 auto; min-height: 0;
     background: linear-gradient(180deg, #10142c 0%, #171c38 100%);
   }
-  .nom { font: 700 clamp(15px, 2.2vh, 18px) Georgia, serif; }
-  .nom small { color: var(--muted); font: 400 12px/1 system-ui; }
-  .rol {
-    align-self: center; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
-    background: var(--panel2); border: 1px solid var(--line); border-radius: 20px;
-    padding: 3px 12px; color: var(--accent);
+  .card .footer { flex: none; padding: 6px 8px 8px; text-align: center; }
+  .nom { font: 700 clamp(12px, 1.6vw, 15px) Georgia, serif; line-height: 1.15; }
+  .nom small { display: block; color: var(--muted); font: 400 10px system-ui; margin-top: 1px; }
+  .card.locked .footer .nom::before { content: '🔒 '; }
+
+  /* Mini-stats en hover: una franja delgada SIN tapar la card entera (a
+     diferencia del panel de detalle completo, que ahora vive en su propia
+     página). Aparece flotando sobre la parte de abajo del retrato. */
+  .peek {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    background: linear-gradient(180deg, rgba(10,12,24,0) 0%, rgba(10,12,24,.94) 40%);
+    padding: 18px 8px 6px;
+    display: flex; flex-direction: column; gap: 2px;
+    opacity: 0; pointer-events: none; transition: opacity .15s ease;
   }
-  /* Sin min-height: la tarjeta ya no puede crecer, y la bio se recorta con
-     elipsis si no entra en vez de empujar el layout. */
-  .bio {
-    color: var(--muted); font-size: 12px; line-height: 1.35;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .sel { font-size: 12px; color: var(--accent); font-weight: 600; visibility: hidden; }
-  .card.on .sel { visibility: visible; }
-  .actions { display: flex; gap: 10px; }
+  .card:hover .peek { opacity: 1; }
+  .peek .strow { display: flex; align-items: center; gap: 4px; }
+  .peek .strow .sn { font-size: 9px; width: 14px; text-align: center; }
+  .peek .strow .pips { display: flex; gap: 1.5px; flex: 1; }
+  .peek .strow .pip { flex: 1; height: 4px; border-radius: 1px; background: rgba(255,255,255,.12); }
+  .peek .strow .pip.on { background: var(--c); }
+
+  .actions { display: flex; gap: 10px; flex: none; padding-top: 4px; }
   .btn {
     font: 600 clamp(12px, 1.8vh, 14px) system-ui; padding: 8px 22px; border-radius: 10px;
     border: 1px solid var(--line); background: var(--panel); color: var(--text);
@@ -119,87 +101,121 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #1a1400; }
   .btn.primary:hover { filter: brightness(1.08); }
 
-  /* Barras de stats */
-  .stats { display: flex; flex-direction: column; gap: 3px; margin: 2px 0; }
-  .strow { display: flex; align-items: center; gap: 6px; font-size: 10.5px; }
-  .strow .sn { width: 62px; color: var(--muted); text-align: left; }
-  .strow .pips { display: flex; gap: 2px; flex: 1; }
-  .strow .pip {
-    flex: 1; height: 6px; border-radius: 2px; background: #262c4e;
-  }
-  .strow .pip.on { background: var(--c); }
+  /* ── Página de detalle (misma pantalla, con ?ver=id) ─────────────────── */
+  #detailView { display: none; width: 100%; max-width: 760px; flex-direction: column; gap: 14px; }
+  #detailView.show { display: flex; }
+  #gridView.hide { display: none; }
 
-  /* Paletas alternativas (recompensas de desafíos) */
-  .pal-row { display: flex; gap: 6px; justify-content: center; min-height: 26px; }
+  .det-head { display: flex; gap: 16px; align-items: center; }
+  .det-canvas-wrap {
+    flex: none; width: clamp(150px, 26vw, 230px); aspect-ratio: 1 / 1;
+    border-radius: 16px; overflow: hidden;
+    background: linear-gradient(180deg, #10142c 0%, #171c38 100%);
+    border: 1px solid var(--line);
+  }
+  .det-canvas-wrap canvas { width: 100%; height: 100%; }
+  .det-id { flex: 1; }
+  .det-id .nom { font: 700 clamp(22px, 4vh, 30px) Georgia, serif; }
+  .det-id .nom small { display: block; color: var(--muted); font: 400 14px system-ui; margin-top: 2px; }
+  .det-id .rol {
+    display: inline-block; margin-top: 6px;
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 20px;
+    padding: 3px 12px; color: var(--accent);
+  }
+  .det-id .arq { color: var(--accent); font-size: 13px; font-style: italic; margin-top: 8px; }
+
+  .det-stats { display: flex; flex-direction: column; gap: 5px; }
+  .det-stats .strow { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .det-stats .strow .sn { width: 76px; color: var(--muted); text-align: left; }
+  .det-stats .strow .pips { display: flex; gap: 3px; flex: 1; }
+  .det-stats .strow .pip { flex: 1; height: 8px; border-radius: 3px; background: #262c4e; }
+  .det-stats .strow .pip.on { background: var(--c); }
+
+  .det-pasiva {
+    font-size: 12.5px; color: #cfe0ff;
+    background: rgba(63,192,255,.08); border: 1px solid rgba(63,192,255,.25);
+    border-radius: 10px; padding: 8px 12px;
+  }
+  .det-pasiva b { color: #ffd54a; }
+
+  .det-section h2 {
+    font: 700 clamp(13px, 1.9vh, 16px) Georgia, serif; color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .det-section p { color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .det-tips { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .det-tips > div {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .det-tips h3 {
+    font: 700 12px system-ui; letter-spacing: .04em; text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .det-tips .play h3 { color: #7ee8a2; }
+  .det-tips .against h3 { color: #ff8a7c; }
+  .det-tips p { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+
+  .pal-row { display: flex; gap: 6px; flex-wrap: wrap; }
   .pal {
-    font: 600 11px system-ui; padding: 4px 12px; border-radius: 14px;
+    font: 600 11.5px system-ui; padding: 5px 12px; border-radius: 14px;
     border: 1px solid var(--line); background: var(--panel2); color: var(--muted);
     cursor: pointer; transition: .13s;
   }
   .pal:hover { color: var(--text); border-color: #3d4780; }
   .pal.on { border-color: var(--accent); color: var(--accent); }
 
-  /* Desafíos: en una tira horizontal compacta al pie, no en una lista
-     apilada que empujaba la página varias pantallas hacia abajo. */
-  .ch-wrap { width: 100%; max-width: 1180px; }
-  .ch-wrap h2 {
-    font: 700 clamp(13px, 1.9vh, 16px) Georgia, serif; text-align: center; margin-bottom: 5px;
-  }
-  .ch-row {
-    display: flex; gap: 8px; overflow-x: auto; padding-bottom: 3px;
-    scrollbar-width: thin;
-  }
-  .ch {
-    display: flex; align-items: center; gap: 8px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    padding: 6px 11px; font-size: 12px; flex: none;
-  }
-  .ch .ico { font-size: 17px; width: 22px; text-align: center; }
-  .ch .tit { font-weight: 700; white-space: nowrap; }
-  .ch .des { color: var(--muted); font-size: 11px; white-space: nowrap; }
-  .ch .premio { font-size: 11px; color: var(--muted); white-space: nowrap; }
-  .ch.done { border-color: rgba(110,231,160,.5); }
-  .ch.done .tit::after { content: ' ✓'; color: #6ee7a0; }
-  .ch.done .premio { color: #6ee7a0; }
-
-  /* ── Pantallas bajas ────────────────────────────────────────────────────
-     Con poco alto no entra todo. En vez de dejar que aparezca el scroll (o
-     que el retrato se aplaste a nada), se recorta lo secundario por orden de
-     importancia: primero la tira de desafíos, después la pasiva y las barras
-     de stats. El personaje y su nombre nunca se sacan. */
-  @media (max-height: 780px) {
-    .card .pasiva { display: none; }
-    .bio { -webkit-line-clamp: 2; }
-  }
-  @media (max-height: 680px) {
-    .ch-wrap { display: none; }
-    .stats { display: none; }
-    .sub { display: none; }
-  }
-  @media (max-height: 560px) {
-    .bio { display: none; }
-    .rol { display: none; }
+  @media (max-width: 560px) {
+    .det-head { flex-direction: column; text-align: center; }
+    .det-tips { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
-  <h1 data-i18n-html="chars.title">Elegí tu <span>personaje</span></h1>
-  <p class="sub" data-i18n="chars.sub">Todos vuelan igual — lo que cambia es quién sos ahí arriba.</p>
-  <div class="carousel">
-    <button class="arrow" id="prev" aria-label="Anterior">‹</button>
-    <div class="track-wrap"><div class="grid" id="grid"></div></div>
-    <button class="arrow" id="next" aria-label="Siguiente">›</button>
+  <div id="gridView">
+    <h1 data-i18n-html="chars.title">Elegí tu <span>personaje</span></h1>
+    <p class="sub" data-i18n="chars.sub">Todos vuelan igual — lo que cambia es quién sos ahí arriba.</p>
+    <div class="grid" id="grid"></div>
+    <div class="actions">
+      <a class="btn" href="index.html" id="btnMenu" data-i18n="chars.menu">← Menú</a>
+      <a class="btn" href="veditor.html" data-i18n="chars.editor">Crear el mío (editor)</a>
+      <button class="btn primary" id="btnPlay" data-i18n="chars.play">Jugar →</button>
+    </div>
   </div>
-  <div class="dots" id="dots"></div>
-  <div class="ch-wrap">
-    <h2 data-i18n="chars.challenges">🏅 Desafíos</h2>
-    <div class="ch-row" id="challenges"></div>
+
+  <div id="detailView">
+    <a class="btn" href="#" id="btnBack" data-i18n="detail.back">← Todos los personajes</a>
+    <div class="det-head">
+      <div class="det-canvas-wrap"><canvas id="detCanvas" width="400" height="400"></canvas></div>
+      <div class="det-id">
+        <div class="nom" id="detNom"></div>
+        <span class="rol" id="detRol"></span>
+        <div class="arq" id="detArq"></div>
+      </div>
+    </div>
+    <div class="det-stats" id="detStats"></div>
+    <div class="det-pasiva" id="detPasiva" style="display:none"></div>
+    <div class="det-section">
+      <h2 data-i18n="detail.lore">Historia</h2>
+      <p id="detLore"></p>
+    </div>
+    <div class="det-tips">
+      <div class="play">
+        <h3 data-i18n="detail.tips.play">Cómo jugarlo</h3>
+        <p id="detTipsPlay"></p>
+      </div>
+      <div class="against">
+        <h3 data-i18n="detail.tips.against">Cómo vencerlo</h3>
+        <p id="detTipsAgainst"></p>
+      </div>
+    </div>
+    <div class="pal-row" id="detPalRow"></div>
+    <div class="actions">
+      <button class="btn primary" id="detPlayBtn"></button>
+    </div>
   </div>
-  <div class="actions">
-    <a class="btn" href="index.html" data-i18n="chars.menu">← Menú</a>
-    <a class="btn" href="veditor.html" data-i18n="chars.editor">Crear el mío (editor)</a>
-    <a class="btn primary" href="jugar.html" data-i18n="chars.play">Jugar →</a>
-  </div>
+
   <script type="module">
     import { BUILD_CONFIG } from './src/build_config.js';
     if (!BUILD_CONFIG.externalLinks) {

@@ -21,18 +21,31 @@ const MENU_KEY = 'escoba.menu.v1';   // sonido/orbes: los administra Opciones
 
 const $ = (id) => document.getElementById(id);
 
+// El flujo nuevo elige modo primero (modo.html) y personaje después
+// (personajes.html?mode=X): esta pantalla se abre entonces con `mode` Y
+// `char` ya decididos en la URL, y sólo pide las reglas de partido. Sin
+// esos parámetros (por ejemplo, entrando directo a jugar.html) se comporta
+// como antes: elegís todo acá, con las pestañas de modo visibles.
+const params = new URLSearchParams(location.search);
+const modeParam = params.get('mode');
+const charParam = params.get('char');
+const modoYaElegido = ['1v1', '2v2', 'practica'].includes(modeParam);
+
 // ── Estado (persistido) ────────────────────────────────────────────────────
 const DEFAULTS = { mode: '1v1', ruleType: 'tiempo', duration: 120, goals: 5, difficulty: 'normal' };
 let prep = (() => {
   try { return { ...DEFAULTS, ...JSON.parse(Storage.get(PREP_KEY) || '{}') }; }
   catch { return { ...DEFAULTS }; }
 })();
+if (modoYaElegido) prep.mode = modeParam;
 function savePrep() {
   try { Storage.set(PREP_KEY, JSON.stringify(prep)); } catch { /* nada */ }
 }
 
 let heroIdx = Math.max(0, ROSTER.findIndex((h) => {
-  try { return h.id === Storage.get(CHAR_KEY); } catch { return false; }
+  // Con `char` en la URL (viene de la card ya elegida), ese manda. Si no,
+  // el último guardado.
+  try { return h.id === (charParam ?? Storage.get(CHAR_KEY)); } catch { return false; }
 }));
 // Un guardado viejo puede apuntar a un personaje bloqueado: caer al primero
 // desbloqueado en vez de dejar seleccionado algo que no se puede jugar.
@@ -43,24 +56,36 @@ if (!isUnlocked(ROSTER[heroIdx]?.id)) {
 // ── Pestañas de modo ───────────────────────────────────────────────────────
 applyI18n();
 
-const MODES = [
-  { id: '1v1', label: t('prep.mode.1v1') },
-  { id: '2v2', label: t('prep.mode.2v2') },
-  { id: 'practica', label: t('prep.mode.practice') },
-  { id: 'torneo', label: t('prep.mode.tournament') },
-];
-for (const m of MODES) {
-  const b = document.createElement('button');
-  b.className = 'tab' + (prep.mode === m.id ? ' on' : '');
-  b.textContent = m.label;
-  b.onclick = () => {
-    prep.mode = m.id;
-    savePrep();
-    [...$('tabs').children].forEach((c) => c.classList.remove('on'));
-    b.classList.add('on');
-    refreshVisibility();
-  };
-  $('tabs').appendChild(b);
+if (modoYaElegido) {
+  // El modo ya se decidió en modo.html: no hay nada que elegir acá. Las
+  // flechas de personaje también se ocultan — el personaje ya se eligió en
+  // la card — dejando sólo las reglas del partido.
+  $('tabs').style.display = 'none';
+  $('prevHero').style.display = 'none';
+  $('nextHero').style.display = 'none';
+  // "Volver" retrocede un paso del flujo (a elegir personaje, con el mismo
+  // modo), no salta todo el camino de vuelta al menú.
+  $('volver').href = `personajes.html?mode=${modeParam}`;
+} else {
+  const MODES = [
+    { id: '1v1', label: t('prep.mode.1v1') },
+    { id: '2v2', label: t('prep.mode.2v2') },
+    { id: 'practica', label: t('prep.mode.practice') },
+    { id: 'torneo', label: t('prep.mode.tournament') },
+  ];
+  for (const m of MODES) {
+    const b = document.createElement('button');
+    b.className = 'tab' + (prep.mode === m.id ? ' on' : '');
+    b.textContent = m.label;
+    b.onclick = () => {
+      prep.mode = m.id;
+      savePrep();
+      [...$('tabs').children].forEach((c) => c.classList.remove('on'));
+      b.classList.add('on');
+      refreshVisibility();
+    };
+    $('tabs').appendChild(b);
+  }
 }
 
 // Qué se ve según el modo: práctica no tiene reglas ni rival; el torneo
@@ -161,6 +186,30 @@ let phase = Math.random() * 10;
 
 function heroNow() { return ROSTER[heroIdx]; }
 
+// Centra las flechas respecto de la POSICIÓN REAL del canvas en pantalla,
+// no de toda la caja .hero-card. Antes, con `align-items: center` en
+// .hero-box, las flechas se centraban contra el alto total de .hero-card
+// —que cambia según el personaje: candado, largo de la pasiva, cantidad de
+// paletas— así que "saltaban" de lugar al cambiar de personaje.
+//
+// La primera versión de este arreglo asumía que el canvas empieza en el
+// top de .hero-box y calculaba el margen como (altoCanvas/2 - altoFlecha/2).
+// Eso ignoraba que .hero-card tiene `justify-content: center`, así que el
+// canvas NO arranca en el top — hay espacio flexible antes de él que varía
+// con el contenido. Medido: con ese cálculo, el centro de la flecha quedaba
+// a 59px del centro real del canvas. Ahora se usa getBoundingClientRect()
+// de ambos directamente: sea cual sea el offset que meta el centrado
+// flexible, la flecha se alinea contra el canvas donde esté de verdad.
+function alinearFlechas() {
+  const boxTop = $('prevHero').parentElement.getBoundingClientRect().top;
+  const canvasRect = canvas.getBoundingClientRect();
+  const canvasCenterY = canvasRect.top + canvasRect.height / 2;
+  const mt = Math.max(0, canvasCenterY - boxTop - 26);   // 26 = mitad de los 52px de .arrow
+  $('prevHero').style.marginTop = mt + 'px';
+  $('nextHero').style.marginTop = mt + 'px';
+}
+addEventListener('resize', alinearFlechas);
+
 function applyHero() {
   const h = heroNow();
   const libre = isUnlocked(h.id);
@@ -227,6 +276,10 @@ addEventListener('keydown', (e) => {
 });
 applyHero();
 refreshVisibility();
+// Un frame después: el layout recién resolvió el alto real del canvas
+// (min-height/max-height con `height: auto`), así que medirlo en el mismo
+// tick que applyHero() puede leer un valor viejo.
+requestAnimationFrame(alinearFlechas);
 
 // Animación del héroe (guion de vuelo, como la galería)
 let last = performance.now();

@@ -18,7 +18,7 @@ import { OrbField, RunnerOrb } from './orbs.js';
 import { ReplayRecorder, ReplayPlayer } from './replay.js';
 import { Coach } from './coach.js';
 import { Hud } from './hud.js';
-import { recordMatch, recordRunnerCatch, isFirstEver, loadStats } from './stats.js';
+import { recordMatch, recordRunnerCatch, isFirstEver } from './stats.js';
 import { completeChallenge, selectedPalettes } from './challenges.js';
 import { isUnlocked, matchReward } from './roster.js';
 import { rondaActual, torneoWin, torneoLose, RONDAS } from './torneo.js';
@@ -266,6 +266,12 @@ const charge = { active: false, t: 0 };
 
 // Flag puntual para dash (se setea antes de endFrame())
 let _dashPending = false;
+// Para los desafíos "Abordaje" (gol justo tras dashear) y "Paciencia
+// infinita" (ganar sin dashear nunca). Se reinician con cada partido nuevo
+// porque el módulo se recarga entero al navegar a play.html — no hace falta
+// resetearlos a mano.
+let _lastDashAt = -Infinity;
+let _dashUsedThisMatch = false;
 
 // Temporizador anti-esquina de la pelota (ver el empujón en step())
 let _cornerT = 0;
@@ -560,6 +566,11 @@ function step(dt) {
       b.vel.y += d.y * dashP;
       particles.impact(b.pos.x, b.pos.y, 320);
       sound.pop();
+      // Marca de uso para dos desafíos: "Abordaje" (gol justo después de
+      // dashear) mira cuánto pasó desde acá; "Paciencia infinita" sólo
+      // necesita saber que se usó al menos una vez.
+      _lastDashAt = performance.now();
+      _dashUsedThisMatch = true;
     }
     if (dashState.active) {
       dashState.t += dt;
@@ -766,6 +777,11 @@ function step(dt) {
       onAppear: (x, y) => { particles.runnerBurst(x, y); sound.runnerAppear(); },
       onEscape: (x, y) => { particles.runnerBurst(x, y); },
     });
+    // "Reflejos" necesita cuánta vida le quedaba al orbe EN EL INSTANTE de
+    // la captura — se lee antes de collect() por las dudas, aunque collect()
+    // no toca lifeT, para no depender de un detalle interno de orbs.js que
+    // podría cambiar.
+    const vidaRestanteAlAtrapar = runner.lifeT;
     const caught = runner.collect(players);
     if (caught) {
       caught.grantUnlimited(CFG.runner.buff);
@@ -773,11 +789,15 @@ function step(dt) {
       sound.runnerCatch();
       // Récord histórico de fugitivos atrapados (solo los del humano)
       if (caught === playerA && !BOTS && !PRACTICE) {
-        recordRunnerCatch();
-        if (loadStats().runners >= 3) {
-          const c = completeChallenge('cazador');
-          if (c) { world.challengeQueue.push(c); sound.stingChallenge(); }
-        }
+        const totalRunners = recordRunnerCatch();
+        const nuevos = [
+          totalRunners >= 3 ? completeChallenge('cazador') : null,
+          totalRunners >= 10 ? completeChallenge('coleccionista') : null,
+          // Reflejos: lo atrapó dentro de los primeros 3 s desde que apareció
+          // (CFG.runner.life son los 20 s totales que dura vivo).
+          vidaRestanteAlAtrapar > CFG.runner.life - 3 ? completeChallenge('reflejos') : null,
+        ].filter(Boolean);
+        if (nuevos.length) { world.challengeQueue.push(...nuevos); sound.stingChallenge(); }
       }
     }
   }
@@ -925,6 +945,7 @@ function frame(now) {
         winner: match.winner,
         scoreFor: match.score.p1,
         scoreAgainst: match.score.p2,
+        teamSize: TEAM_SIZE,
       });
 
       // Sting de cierre: la victoria se celebra, la derrota se reconoce corto
@@ -939,6 +960,12 @@ function frame(now) {
           match.score.p1 - match.score.p2 >= 3 ? completeChallenge('goleada') : null,
           DIFFICULTY === 'dificil' ? completeChallenge('leyenda') : null,
           world.lastStats.streak >= 3 ? completeChallenge('imparable') : null,
+          // Nuevos — todos condicionados a haber ganado, como los de arriba.
+          world.lastStats.wins2v2 >= 5 ? completeChallenge('aguante') : null,
+          world.lastStats.wins >= 10 ? completeChallenge('veterano') : null,
+          (TEAM_SIZE === 2 && match.score.p2 === 0) ? completeChallenge('escuadron') : null,
+          !_dashUsedThisMatch ? completeChallenge('paciencia') : null,
+          input.boostTime === 0 ? completeChallenge('ahorro') : null,
         ].filter(Boolean);
         if (done.length) {
           world.challengeQueue.push(...done);
@@ -994,9 +1021,22 @@ function frame(now) {
   }
   // Piromanía: gol del humano con la pelota EN LLAMAS en el momento de entrar
   if (match.state === 'goal' && prevMatchState !== 'goal'
-      && match.goalScorer === 'p1' && ball.fire > 0 && !BOTS && !PRACTICE) {
-    const c = completeChallenge('piromania');
-    if (c) { world.challengeQueue.push(c); sound.stingChallenge(); }
+      && match.goalScorer === 'p1' && !BOTS && !PRACTICE) {
+    const golesDelHumano = [
+      ball.fire > 0 ? completeChallenge('piromania') : null,
+      // Fuego + 2v2 a la vez: el mismo evento cuenta para los dos.
+      (ball.fire > 0 && TEAM_SIZE === 2) ? completeChallenge('equilibrio') : null,
+      // Abordaje: el dash y este gol pasaron a menos de 1 s de distancia.
+      (performance.now() - _lastDashAt < 1000) ? completeChallenge('abordaje') : null,
+      // Al límite: quedaban 3 s o menos en el reloj (no aplica en práctica,
+      // por goles o gol de oro, donde timeLeft no cuenta el tiempo real).
+      (!match.golden && !match.goalTarget && match.timeLeft <= 3)
+        ? completeChallenge('ultimosegundo') : null,
+    ].filter(Boolean);
+    if (golesDelHumano.length) {
+      world.challengeQueue.push(...golesDelHumano);
+      sound.stingChallenge();
+    }
   }
 
   // Hit-stop del gol: un latido congelado justo cuando la pelota cruza,
