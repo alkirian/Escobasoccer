@@ -13,7 +13,7 @@ import { statsOf, pasivaOf } from './stats_chars.js';
 import { isUnlocked, coins, tryUnlock, COSTS } from './roster.js';
 
 import { Storage } from './storage/storage.js';
-import { t, applyI18n } from './i18n/i18n.js';
+import { t, applyI18n, applyMeta } from './i18n/i18n.js';
 
 const CHAR_KEY = 'escoba.character.v1';
 const PREP_KEY = 'escoba.prep.v1';
@@ -55,6 +55,7 @@ if (!isUnlocked(ROSTER[heroIdx]?.id)) {
 
 // ── Pestañas de modo ───────────────────────────────────────────────────────
 applyI18n();
+applyMeta('jugar');
 
 if (modoYaElegido) {
   // El modo ya se decidió en modo.html: no hay nada que elegir acá. Las

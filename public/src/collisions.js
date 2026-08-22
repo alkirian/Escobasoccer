@@ -101,6 +101,9 @@ export function interactPlayerBall(player, ball, dt, fx) {
       if (aimed) applyAimedHit(player.rider, ball, Math.hypot(pv.x, pv.y));
       else maybeIgnite(player.rider, ball);
       fx?.onImpact(ball.pos.x - nx * ball.r, ball.pos.y - ny * ball.r, Math.abs(vn), 'ball');
+      // Quién tocó la pelota por última vez — para saber, si entra en el
+      // arco, si fue gol a favor o EN CONTRA (ver match.js onGoal).
+      ball.lastHitter = player;
     }
   }
 
@@ -140,6 +143,9 @@ export function interactPlayerBall(player, ball, dt, fx) {
       // retroceso leve en la escoba
       player.broom.applyImpulseAt(c.x, c.y, -nx * j * 0.12, -ny * j * 0.12);
       if (onTip || aimed) fx?.onImpact(c.x, c.y, Math.abs(vn), 'broom');
+      // Quién tocó la pelota por última vez — para saber, si entra en el
+      // arco, si fue gol a favor o EN CONTRA (ver match.js onGoal).
+      ball.lastHitter = player;
     }
   }
 

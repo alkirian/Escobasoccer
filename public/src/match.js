@@ -45,6 +45,8 @@ export class Match {
     this.goalT = 0;
     this.goalSide = null;
     this.goalScorer = null;
+    this.goalKicker = null;
+    this.ownGoal = false;
     this.timeScale = 1;
     this.blastT = 0;
     this.blasted = false;
@@ -85,6 +87,15 @@ export class Match {
       : (side === 'goalL' ? 'p2' : 'p1');     // respaldo por si no hay jugadores
     this.score[scorer]++;
     this.goalScorer = scorer;
+    // Quién metió la pelota FÍSICAMENTE puede no ser a quién se le anota el
+    // punto: si el último en tocarla fue del mismo equipo que defiende este
+    // arco, fue un autogol (el punto sigue siendo del rival, pero el texto
+    // tiene que decir "en contra", no acusar al rival de algo que no hizo).
+    // Sin lastHitter (nadie tocó, la pelota entró sola) no hay a quién
+    // acusar de nada: se trata como gol normal del anotador.
+    const kicker = w.ball.lastHitter;
+    this.ownGoal = !!(kicker && dueño && kicker.team === dueño.team);
+    this.goalKicker = kicker ? kicker.team : scorer;
     this.goalSide = side === 'goalL' ? -1 : 1;
     this.state = 'goal';
     this.goalT = CFG.match.goalPause;

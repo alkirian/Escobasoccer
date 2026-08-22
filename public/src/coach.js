@@ -54,18 +54,48 @@ const LESSONS = [
     learned: (w) => w.input.mouseMoved > 600,
   },
   {
+    id: 'acercar', key: t('key.mouse'), text: t('coach.acercar'),
+    anchor: 'ball',
+    // Se enseña ANTES que "golpe": si el jugador nunca se acerca, esa
+    // lección tampoco llega a aparecer nunca (su `when` exige la pelota
+    // cerca) y el circuito completo se traba en el primer paso invisible.
+    // Dispara solo si ya sabe mover la escoba (si no, ésa va primero) y la
+    // pelota lleva un rato lejos — no apenas empieza el punto, para no
+    // amontonar carteles al arrancar.
+    when: (w, L, dt) => {
+      if (!w.coachDoneSnapshot?.mover) return false;
+      const b = w.playerA.broom, ball = w.ball;
+      if (ball.frozen) return false;
+      const d = Math.hypot(ball.pos.x - b.pos.x, ball.pos.y - b.pos.y);
+      L.farT = d > 420 ? (L.farT || 0) + (dt || 0.016) : 0;
+      return L.farT > 1.2;
+    },
+    learned: (w) => {
+      const b = w.playerA.broom, ball = w.ball;
+      return Math.hypot(ball.pos.x - b.pos.x, ball.pos.y - b.pos.y) < 300;
+    },
+  },
+  {
     id: 'golpe', key: t('key.click'), text: t('coach.golpe'),
     anchor: 'ball',
+    // El umbral de distancia coincide con SPIN.range (main.js): más allá de
+    // eso el golpe sale SIN asistencia de apuntado, así que mostrar el
+    // cartel más lejos que eso invitaría a soltar el click fuera de rango y
+    // fallar sin entender por qué. Mostrarlo justo dentro del rango real
+    // hace que "ahora" signifique "ahora te va a salir bien".
     when: (w) => {
       const b = w.playerA.broom, ball = w.ball;
       if (ball.frozen) return false;
-      return Math.hypot(ball.pos.x - b.pos.x, ball.pos.y - b.pos.y) < 320;
+      return Math.hypot(ball.pos.x - b.pos.x, ball.pos.y - b.pos.y) < 300;
     },
-    // Soltar un golpe (conecte o no) demuestra que el control se entendió.
+    // Antes se daba por aprendida con SOLTAR el click, conectara o no — un
+    // jugador que soltaba al aire (lejos, sin querer) perdía la lección
+    // para siempre sin haber entendido nada. Ahora exige un golpe que
+    // realmente TOCÓ la pelota (spin.hit, marcado en main.js al conectar).
     learned: (w, L) => {
-      const firing = !!w.spin?.active;
-      const rose = firing && !L.prevSpin;
-      L.prevSpin = firing;
+      const hit = !!w.spin?.hit;
+      const rose = hit && !L.prevHit;
+      L.prevHit = hit;
       return rose;
     },
   },
@@ -96,6 +126,22 @@ const LESSONS = [
       if (L.boostBase == null) L.boostBase = w.input.boostTime;
       return w.input.boostTime - L.boostBase > 0.35;
     },
+  },
+  {
+    id: 'arco', key: '🥅', text: t('coach.arco'),
+    anchor: 'rivalGoal',
+    // El momento en que el arco importa: la pelota está libre (nadie la tiene
+    // congelada) y del lado de cancha del rival — recién ahí "meterla ahí"
+    // significa algo concreto y no es un dato suelto antes de tiempo.
+    when: (w) => {
+      if (w.ball.frozen) return false;
+      const side = w.playerA.side || -1; // arco que defiendo
+      // El campo rival es la mitad contraria a mi propio arco.
+      return Math.sign(w.ball.pos.x) === -side && Math.abs(w.ball.pos.x) > 200;
+    },
+    // Se da por aprendida con el primer gol del humano — ver main.js, que
+    // llama a coach.markLearned('arco') en la transición a estado 'goal'.
+    learned: (w, L) => !!L.forceLearned,
   },
   {
     id: 'flotar', key: t('key.rclick'), text: t('coach.flotar'),
@@ -132,6 +178,17 @@ export class Coach {
     this.t = 0;                   // reloj total del coach
   }
 
+  // Marca una lección completa desde afuera (ej. el gol real del humano,
+  // que main.js ve primero porque conoce el resultado del punto). Con flash
+  // solo si la lección estaba visible — si nunca llegó a mostrarse, no hay
+  // nada que confirmar en pantalla.
+  markLearned(id) {
+    const l = LESSONS.find((x) => x.id === id);
+    if (!l || this.done[id]) return;
+    this.state[id].forceLearned = true;
+    this._complete(l, this.current === l);
+  }
+
   _complete(lesson, withFlash) {
     this.done[lesson.id] = true;
     saveDone(this.done);
@@ -142,6 +199,10 @@ export class Coach {
   // Llamar una vez por frame con dt real, solo con el partido corriendo.
   update(dt, world) {
     this.t += dt;
+    // Qué lecciones ya se dieron por sabidas — algunas `when` lo consultan
+    // para ordenarse entre sí (ej. "acercate" solo tiene sentido después de
+    // "mover"), sin que cada lección necesite su propia referencia al coach.
+    world.coachDoneSnapshot = this.done;
     if (this.cooldown > 0) this.cooldown -= dt;
     if (this.flash) {
       this.flash.t -= dt;

@@ -1,4 +1,4 @@
-// Render 2.5D: el mapa ES la imagen "1 mapa.jpeg", dibujada dentro de la
+// Render 2.5D: el mapa ES la imagen "mapa.webp", dibujada dentro de la
 // transformación de mundo para que arte y física queden alineados 1:1.
 // Los personajes salen del ragdoll físico y proyectan sombra en el césped.
 import { CFG } from './config.js';
@@ -682,8 +682,14 @@ export class Renderer {
   _portalAura(ctx, side, world) {
     const { portalR } = CFG.arena;
     const c = portalCenter(side);
-    const color = side === -1 ? CFG.colors.p1 : CFG.colors.p2;
-    const glow = side === -1 ? CFG.colors.p1Glow : CFG.colors.p2Glow;
+    // El color del portal es del EQUIPO QUE LO DEFIENDE, no de la posición
+    // física izq/der — el lado de salida se sortea cada partido (ver
+    // match.js onGoal), así que "portal izquierdo = azul" fijo quedaba mal
+    // la mitad de las veces. Se pregunta qué jugador defiende este lado
+    // (pl.side) y se usa su equipo; p1 (vos y tus aliados) siempre es azul.
+    const team = this._teamAtSide(side, world);
+    const color = team === 'p1' ? CFG.colors.p1 : CFG.colors.p2;
+    const glow = team === 'p1' ? CFG.colors.p1Glow : CFG.colors.p2Glow;
     let pulse = 0.5 + 0.5 * Math.sin(this.t * 1.8 + side * 10);
 
     // El portal está vivo: se agita cuando la pelota se le acerca, y durante
@@ -704,7 +710,10 @@ export class Renderer {
     ctx.save();
     ctx.translate(c.x, c.y);
 
-    // Onda expansiva del gol: anillo que se abre y se disipa
+    // Onda expansiva del gol: anillo que se abre y se disipa, con esquirlas
+    // de energía disparadas hacia afuera — antes eran solo los dos aros
+    // concéntricos; las esquirlas rompen la simetría perfecta y venden mejor
+    // la idea de "explosión" en vez de "círculo creciendo".
     if (goaling && m.blasted && m.blastWave < 1) {
       const wv = m.blastWave;
       ctx.save();
@@ -722,9 +731,42 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(0, 0, wv * CFG.goalBlast.radius * 0.72, 0, 7);
       ctx.stroke();
+
+      // Esquirlas: líneas cortas que salen disparadas radialmente, más
+      // lejos que la onda misma (la punta corre 1.4x el radio del aro).
+      const nShards = 10;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      for (let i = 0; i < nShards; i++) {
+        const a = (i / nShards) * Math.PI * 2 + side * 0.7;
+        const rIn = wv * CFG.goalBlast.radius * 0.85;
+        const rOut = wv * CFG.goalBlast.radius * 1.4;
+        ctx.globalAlpha = (1 - wv) * 0.6 * (0.6 + 0.4 * Math.sin(i * 5.1));
+        ctx.strokeStyle = i % 2 === 0 ? color : '#fff6d8';
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * rIn, Math.sin(a) * rIn);
+        ctx.lineTo(Math.cos(a) * rOut, Math.sin(a) * rOut);
+        ctx.stroke();
+      }
       ctx.restore();
       ctx.globalAlpha = 1;
     }
+
+    // Halo exterior lento: una segunda respiración, más grande y más tenue,
+    // en un ritmo distinto al halo interior (~5x más lento) — dos pulsos
+    // desincronizados leen como "algo vivo" mucho mejor que uno solo, que
+    // se vuelve previsible apenas se lo mira dos segundos.
+    const slowPulse = 0.5 + 0.5 * Math.sin(this.t * 0.35 + side * 4);
+    const outerR = portalR * (1.5 + excite * 0.7 + slowPulse * 0.25);
+    const go = ctx.createRadialGradient(0, 0, portalR * 0.6, 0, 0, outerR);
+    go.addColorStop(0, 'rgba(0,0,0,0)');
+    go.addColorStop(0.7, glow.replace(/[\d.]+\)$/, `${0.05 + excite * 0.08})`));
+    go.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = go;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, outerR * 0.6, outerR, 0, 0, 7);
+    ctx.fill();
 
     // halo que respira, dentro del hueco del arco
     const haloR = portalR * (1.15 + excite * 0.9);
@@ -748,16 +790,71 @@ export class Renderer {
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // energía girando adentro: se acelera cuando la pelota se acerca
+    // energía girando adentro: se acelera cuando la pelota se acerca. Dos
+    // capas con distinto radio Y sentido de giro (antes las tres iban para
+    // el mismo lado): la contra-rotación da sensación de vórtice de verdad
+    // en vez de "todo dando vueltas parejo".
     const swirl = 1 + excite * 3.5;
-    ctx.globalAlpha = 0.3 + excite * 0.45;
     ctx.lineWidth = 2.5;
     for (let i = 0; i < 3; i++) {
-      const a0 = this.t * swirl * (0.7 + i * 0.4) * side + i * 2.1;
+      const dirI = i === 1 ? -1 : 1; // el anillo del medio gira al revés
+      const a0 = this.t * swirl * (0.7 + i * 0.4) * side * dirI + i * 2.1;
+      ctx.globalAlpha = (0.3 + excite * 0.45) * (i === 1 ? 0.8 : 1);
+      ctx.strokeStyle = i === 1 ? '#fff6d8' : color;
       ctx.beginPath();
       ctx.ellipse(0, 0, portalR * (0.2 + i * 0.13), portalR * (0.36 + i * 0.24),
         0, a0, a0 + 2.4);
       ctx.stroke();
+    }
+
+    // Chispas orbitales: puntos discretos con estela corta, girando pegados
+    // al marco — a diferencia de las franjas de arriba (que son trazos de
+    // arco), estas se leen como partículas sueltas de verdad y dan densidad
+    // sin sumar otra capa de relleno.
+    const nSparks = 6 + Math.round(excite * 6);
+    ctx.fillStyle = '#fff8e0';
+    for (let i = 0; i < nSparks; i++) {
+      const sp = this.t * (1.3 + excite * 2.6) * side + (i / nSparks) * Math.PI * 2;
+      const rx = portalR * 0.5, ry = portalR * 0.94;
+      const sx = Math.cos(sp) * rx, sy = Math.sin(sp) * ry;
+      const bob = 0.75 + 0.25 * Math.sin(this.t * 4 + i * 3);
+      ctx.globalAlpha = (0.4 + excite * 0.5) * bob;
+      ctx.beginPath();
+      ctx.arc(sx, sy, (1.4 + excite * 1.3) * bob, 0, 7);
+      ctx.fill();
+    }
+
+    // Arco eléctrico esporádico: un rayo quebrado que cruza el hueco de vez
+    // en cuando, más seguido cuanto más "excitado" está el portal. Vende la
+    // sensación de energía inestable sin estar siempre encendido — un
+    // efecto constante se vuelve ruido de fondo, uno intermitente se nota.
+    {
+      const boltPeriod = 2.6 - excite * 1.9; // más excitado = más seguido
+      const boltPhase = (this.t + side * 13) % Math.max(0.4, boltPeriod);
+      const boltDur = 0.09 + excite * 0.05;
+      if (boltPhase < boltDur && (excite > 0.15 || goaling)) {
+        const bt = boltPhase / boltDur;
+        ctx.save();
+        ctx.globalAlpha = (1 - bt) * 0.8;
+        ctx.strokeStyle = '#fff6d8';
+        ctx.lineWidth = 2.2;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        const segs = 5;
+        let px = 0, py = -portalR * 0.85;
+        ctx.moveTo(px, py);
+        for (let i = 1; i <= segs; i++) {
+          const f = i / segs;
+          const jag = (Math.sin(i * 12.9 + this.t * 40 + side) ) * portalR * 0.14 * (1 - f * 0.4);
+          px = jag;
+          py = lerp(-portalR * 0.85, portalR * 0.85, f);
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
     }
 
     // ascuas subiendo por el hueco
@@ -1470,6 +1567,16 @@ export class Renderer {
     }
   }
 
+  // Qué equipo defiende un lado físico del mapa (-1 izq / +1 der). El lado de
+  // salida se sortea cada partido, así que esto NUNCA es fijo — hay que
+  // preguntarle a los jugadores reales. 'p1' por defecto (nunca debería
+  // hacer falta: siempre hay alguien defendiendo cada arco).
+  _teamAtSide(side, world) {
+    const list = world?.players || [world?.playerA, world?.playerB].filter(Boolean);
+    const dueño = list.find((p) => p && p.side === side);
+    return dueño ? dueño.team : 'p1';
+  }
+
   // Colores por equipo. En 2v2 el compañero usa una variante más clara del
   // mismo color: se distingue de vos sin que se confunda con el rival.
   _teamColors(pl) {
@@ -2096,12 +2203,15 @@ export class Renderer {
 
   // Efectos de la escoba, comunes al dibujo geometrico y al skin de sprites.
   _broomFX(ctx, b, tip, tail, d) {
-    // resplandor de propulsión
+    // resplandor de propulsión — moderado: a boost a fondo antes llegaba a
+    // 82px de radio y 0.9 de opacidad, una bola de luz que tapaba la cola de
+    // la escoba en pleno sprint. Recortado a un halo más chico y más sutil,
+    // que sigue leyéndose como "estás acelerando" sin gritarlo.
     if (b.thrustPower > 0.05) {
-      const rad = (42 + b.boostPower * 40) * S;
+      const rad = (34 + b.boostPower * 20) * S;
       const g = ctx.createRadialGradient(tail.x, tail.y, 2, tail.x, tail.y, rad);
       const boost = b.boostPower;
-      g.addColorStop(0, `rgba(${160 + boost * 95},${220 - boost * 60},${255 - boost * 160},${(0.5 + boost * 0.4) * b.thrustPower})`);
+      g.addColorStop(0, `rgba(${160 + boost * 95},${220 - boost * 60},${255 - boost * 160},${(0.34 + boost * 0.22) * b.thrustPower})`);
       g.addColorStop(1, 'rgba(160,220,255,0)');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(tail.x, tail.y, rad, 0, 7); ctx.fill();
@@ -2109,16 +2219,20 @@ export class Renderer {
 
     // A mucha velocidad el palo se ve cargado de magia: runas corriendo por
     // la madera y un halo a lo largo. Se reserva para velocidades altas.
+    // El boost pesaba tanto en `charge` que con la barra llena SOLA (aun
+    // yendo despacio) ya se veía el halo más intenso posible — recortado
+    // para que el brillo dependa sobre todo de la velocidad real, no de
+    // tener la tecla de sprint apretada.
     const speed = Math.hypot(b.vel.x, b.vel.y);
-    const charge = clamp((speed - 620) / 700, 0, 1) * 0.55 + b.boostPower * 0.45;
+    const charge = clamp((speed - 620) / 700, 0, 1) * 0.55 + b.boostPower * 0.25;
     if (charge > 0.06) {
       ctx.save();
-      ctx.globalAlpha = charge * 0.85;
+      ctx.globalAlpha = charge * 0.6;
       ctx.strokeStyle = b.boostPower > 0.3 ? '#ffd76a' : '#9fe6ff';
-      ctx.lineWidth = (3 + charge * 3) * S;
+      ctx.lineWidth = (2.4 + charge * 2.2) * S;
       ctx.lineCap = 'round';
       ctx.shadowColor = ctx.strokeStyle;
-      ctx.shadowBlur = 10 + charge * 14;
+      ctx.shadowBlur = 6 + charge * 8;
       ctx.beginPath();
       ctx.moveTo(tail.x + d.x * 16 * S, tail.y + d.y * 16 * S);
       ctx.lineTo(tip.x, tip.y);
@@ -2511,6 +2625,58 @@ export class Renderer {
     ctx.arc(b.pos.x, b.pos.y, R, -Math.PI / 2, -Math.PI / 2 + cf * Math.PI * 2);
     ctx.stroke();
     ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+
+    this._aimArrow(ctx, world, cf);
+  }
+
+  // Flecha de apuntado: mientras se mantiene el golpe, muestra hacia dónde
+  // va a salir la pelota si se suelta AHORA. Nace en la pelota (no en el
+  // jugador) porque es de ahí que el golpe dirigido sale — la misma
+  // matemática que main.js usa al soltar (cursor - pelota, normalizado),
+  // sólo que acá se recalcula en vivo cuadro a cuadro mientras se apunta.
+  // Solo aparece dentro de world.hitRange: fuera de ese radio el golpe sale
+  // SIN asistencia, mostrar la flecha ahí prometería una puntería que el
+  // juego no va a dar.
+  _aimArrow(ctx, world, cf) {
+    const ball = world.ball;
+    if (ball.frozen) return;
+    const range = world.hitRange || 300;
+    const cur = world.camera.screenToWorld(world.input.cursor.x, world.input.cursor.y);
+    const dx = ball.pos.x - world.playerA.broom.pos.x, dy = ball.pos.y - world.playerA.broom.pos.y;
+    if (Math.hypot(dx, dy) > range) return;
+
+    const hx = cur.x - ball.pos.x, hy = cur.y - ball.pos.y;
+    const hl = Math.hypot(hx, hy);
+    if (hl < 4) return; // cursor prácticamente sobre la pelota: nada que apuntar
+    const ux = hx / hl, uy = hy / hl;
+
+    const start = ball.r + 10;
+    const len = clamp(hl * 0.4, 40, 130);
+    const ex = ball.pos.x + ux * (start + len), ey = ball.pos.y + uy * (start + len);
+    const sx = ball.pos.x + ux * start, sy = ball.pos.y + uy * start;
+
+    ctx.save();
+    ctx.globalAlpha = 0.55 + cf * 0.45;
+    ctx.strokeStyle = cf >= 0.999 ? '#fff0b0' : '#ffd76a';
+    ctx.lineWidth = 3.5 + cf * 2;
+    ctx.lineCap = 'round';
+    if (cf >= 0.999) { ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 12; }
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+
+    // Punta de flecha
+    const headLen = 12 + cf * 4;
+    const ang = Math.atan2(uy, ux);
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - Math.cos(ang - 0.5) * headLen, ey - Math.sin(ang - 0.5) * headLen);
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - Math.cos(ang + 0.5) * headLen, ey - Math.sin(ang + 0.5) * headLen);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.restore();
   }
 
   _rrect(ctx, x, y, w, h, r) {

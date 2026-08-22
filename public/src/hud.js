@@ -156,9 +156,20 @@ export class Hud {
       big = t('game.ya'); bigClass = 'ya';
     } else if (m.state === 'goal' && m.blasted) {
       big = t('game.goal'); bigClass = 'goal ' + (m.goalScorer === 'p1' ? 'p1' : 'p2');
-      sub2 = m.goalScorer === 'p1'
-        ? (world.botsMode ? t('game.goal.blue') : t('game.goal.you'))
-        : (world.botsMode ? t('game.goal.red') : t('game.goal.rival'));
+      // El texto describe quién metió la pelota FÍSICAMENTE (goalKicker), no
+      // siempre a quién le sirve el punto (goalScorer) — un autogol le da el
+      // punto al rival, pero decir "gol del rival" sería mentirle al jugador
+      // sobre quién la tocó.
+      const kicker = m.goalKicker || m.goalScorer;
+      if (m.ownGoal) {
+        sub2 = kicker === 'p1'
+          ? (world.botsMode ? t('game.goal.ownBlue') : t('game.goal.ownYou'))
+          : (world.botsMode ? t('game.goal.ownRed') : t('game.goal.ownRival'));
+      } else {
+        sub2 = kicker === 'p1'
+          ? (world.botsMode ? t('game.goal.blue') : t('game.goal.you'))
+          : (world.botsMode ? t('game.goal.red') : t('game.goal.rival'));
+      }
     }
     this._set('big', big + '|' + bigClass, () => {
       el.bigMain.textContent = big;
@@ -235,6 +246,11 @@ export class Hud {
       case 'player':    return toScreen(world.playerA.broom.pos);
       case 'dashHud':   return { x: 60, y: H - 78 };
       case 'energyHud': return { x: 118, y: H - 42 };
+      case 'rivalGoal': {
+        const side = world.playerA.side || -1;
+        const A = CFG.arena;
+        return toScreen({ x: side < 0 ? A.R : A.L, y: A.portalY });
+      }
       default:          return { x: W / 2, y: H / 2 };
     }
   }

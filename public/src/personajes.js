@@ -17,7 +17,7 @@ import { statsOf, pasivaOf } from './stats_chars.js';
 import { statsHTML } from './statsui.js';
 import { isUnlocked, COSTS, coins, tryUnlock } from './roster.js';
 import { Storage } from './storage/storage.js';
-import { t, applyI18n } from './i18n/i18n.js';
+import { t, applyI18n, applyMeta } from './i18n/i18n.js';
 import { unlockedPalettes, selectedPalettes, selectPalette } from './challenges.js';
 
 const CHAR_KEY = 'escoba.character.v1';
@@ -41,6 +41,7 @@ if (!isUnlocked(selected)) {
 }
 
 applyI18n();
+applyMeta('personajes');
 
 // Desbloqueados primero, en el orden del ROSTER; bloqueados después, en el
 // mismo orden entre ellos. El ROSTER original (usado por bots, torneo, etc.)
