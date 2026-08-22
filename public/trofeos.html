@@ -2,8 +2,8 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Escoba Voladora — Trofeos</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Broomball Blitz — Trofeos</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -19,6 +19,7 @@
     /* Pantalla completa: el contenido scrollea DENTRO de su panel, la
        página nunca. */
     height: 100%; overflow: hidden; padding: 18px 18px 14px;
+    --pad-t: 18px; --pad-r: 18px; --pad-b: 14px; --pad-l: 18px;
     display: flex; flex-direction: column; align-items: center; gap: 16px;
   }
   h1 { font: 700 28px Georgia, serif; }
@@ -96,6 +97,18 @@
     border: 1px solid var(--line); border-radius: 10px; padding: 9px 22px;
   }
   .volver:hover { color: var(--text); border-color: #3d4780; }
+
+  /* Safe areas (notch / barra de gestos). Con viewport-fit=cover el contenido
+     ocupa toda la pantalla, así que hay que meterlo hacia adentro a mano. En
+     un dispositivo sin recortes los env() valen 0px y el layout no cambia. */
+  @supports (padding: env(safe-area-inset-top)) {
+    body {
+      padding-top: calc(var(--pad-t, 14px) + env(safe-area-inset-top, 0px));
+      padding-right: calc(var(--pad-r, 16px) + env(safe-area-inset-right, 0px));
+      padding-bottom: calc(var(--pad-b, 12px) + env(safe-area-inset-bottom, 0px));
+      padding-left: calc(var(--pad-l, 16px) + env(safe-area-inset-left, 0px));
+    }
+  }
 </style>
 </head>
 <body>
@@ -122,8 +135,9 @@
   <a class="volver" href="index.html" data-i18n="opt.back">← Volver al menú</a>
 
   <script type="module">
-    import { t, applyI18n } from './src/i18n/i18n.js';
+    import { t, applyI18n, applyMeta } from './src/i18n/i18n.js';
     applyI18n();
+    applyMeta('trofeos');
     import { CHALLENGES, isDone } from './src/challenges.js';
     import { loadStats } from './src/stats.js';
     import { loadTorneo, RONDAS } from './src/torneo.js';

@@ -2,8 +2,8 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Escoba Voladora — Personajes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Broomball Blitz — Personajes</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -18,6 +18,7 @@
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
     min-height: 100%;
     padding: clamp(12px, 2.2vh, 20px);
+    --pad-t: clamp(12px, 2.2vh, 20px); --pad-r: clamp(12px, 2.2vh, 20px); --pad-b: clamp(12px, 2.2vh, 20px); --pad-l: clamp(12px, 2.2vh, 20px);
     display: flex; flex-direction: column; align-items: center; gap: clamp(6px, 1.2vh, 12px);
   }
   h1 { font: 700 clamp(18px, 3vh, 26px) Georgia, serif; letter-spacing: .02em; text-align: center; }
@@ -104,6 +105,18 @@
   /* ── Página de detalle (misma pantalla, con ?ver=id) ─────────────────── */
   #detailView { display: none; width: 100%; max-width: 760px; flex-direction: column; gap: 14px; }
   #detailView.show { display: flex; }
+  /* El contenedor de la grilla tiene que ceñirse al ancho disponible. Sin
+     esto era un bloque flex sin ancho propio: se dimensionaba por su
+     contenido (10 cards de 150px mínimo = 960px) y desbordaba en horizontal
+     apenas la ventana bajaba de ~960px — visible en 821×462, una de las
+     resoluciones con las que CrazyGames hace QA. Con width:100% la grilla
+     reparte el ancho real y auto-fill apila en más filas, que es lo que el
+     diseño ya esperaba. */
+  #gridView {
+    display: flex; flex-direction: column; align-items: center;
+    gap: clamp(6px, 1.2vh, 12px);
+    width: 100%; max-width: 1100px; min-width: 0;
+  }
   #gridView.hide { display: none; }
 
   .det-head { display: flex; gap: 16px; align-items: center; }
@@ -169,6 +182,18 @@
   @media (max-width: 560px) {
     .det-head { flex-direction: column; text-align: center; }
     .det-tips { grid-template-columns: 1fr; }
+  }
+
+  /* Safe areas (notch / barra de gestos). Con viewport-fit=cover el contenido
+     ocupa toda la pantalla, así que hay que meterlo hacia adentro a mano. En
+     un dispositivo sin recortes los env() valen 0px y el layout no cambia. */
+  @supports (padding: env(safe-area-inset-top)) {
+    body {
+      padding-top: calc(var(--pad-t, 14px) + env(safe-area-inset-top, 0px));
+      padding-right: calc(var(--pad-r, 16px) + env(safe-area-inset-right, 0px));
+      padding-bottom: calc(var(--pad-b, 12px) + env(safe-area-inset-bottom, 0px));
+      padding-left: calc(var(--pad-l, 16px) + env(safe-area-inset-left, 0px));
+    }
   }
 </style>
 </head>

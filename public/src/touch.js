@@ -41,18 +41,40 @@ export class TouchControls {
     canvas.addEventListener('touchcancel', e => this._onEnd(e), { passive: false });
   }
 
+  // Safe areas (notch, barra de gestos, esquinas redondeadas). Los controles
+  // se dibujan sobre el canvas, así que no los alcanza el CSS: hay que leer
+  // los insets a mano y correr los botones hacia adentro. Sin esto, en un
+  // iPhone en landscape el botón de pausa queda debajo del notch y el
+  // acelerador encima de la barra de gestos — intocables.
+  //
+  // Los insets se leen de una propiedad CSS que sí resuelve env() (el valor
+  // de env() no es accesible desde JS directamente). Si el navegador no los
+  // soporta, devuelve 0 y el layout queda como antes.
+  _insets() {
+    const cs = getComputedStyle(document.documentElement);
+    const px = (name) => {
+      const v = parseFloat(cs.getPropertyValue(name));
+      return Number.isFinite(v) ? v : 0;
+    };
+    return {
+      top: px('--sa-top'), right: px('--sa-right'),
+      bottom: px('--sa-bottom'), left: px('--sa-left'),
+    };
+  }
+
   _layout() {
     const W = this.canvas.clientWidth, H = this.canvas.clientHeight;
+    const sa = this._insets();
     return {
       W, H,
       joyMaxR: 58,
       joyDeadzone: 10,
-      thrust: { x: W - 92, y: H - 102, r: 54 },
-      hit: { x: W - 198, y: H - 158, r: 44 },
+      thrust: { x: W - 92 - sa.right, y: H - 102 - sa.bottom, r: 54 },
+      hit: { x: W - 198 - sa.right, y: H - 158 - sa.bottom, r: 44 },
       // Pausa: arriba a la derecha, lejos del marcador (centro) y de los
       // pulgares. En teclado existe P/Esc; en el teléfono no había NINGUNA
       // forma de pausar.
-      pause: { x: W - 34, y: 34, r: 24 },
+      pause: { x: W - 34 - sa.right, y: 34 + sa.top, r: 24 },
     };
   }
 

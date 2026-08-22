@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Escoba Voladora — Partido</title>
+  <title>Broomball Blitz — Partido</title>
   <meta name="description" content="Fútbol de magos en escobas voladoras: física alocada, golpes cargados y explosiones de gol.">
   <meta name="theme-color" content="#0a0c18">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
@@ -11,6 +11,18 @@
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="style.css">
   <style>
+    /* Safe areas expuestas a JS. Los controles táctiles se dibujan DENTRO del
+       canvas, así que el CSS no los puede correr solo: touch.js lee estas
+       variables (env() no es legible desde JS) para meter los botones hacia
+       adentro del notch y de la barra de gestos. En un navegador sin env()
+       resuelven a 0px y el layout queda igual que antes. */
+    :root {
+      --sa-top: env(safe-area-inset-top, 0px);
+      --sa-right: env(safe-area-inset-right, 0px);
+      --sa-bottom: env(safe-area-inset-bottom, 0px);
+      --sa-left: env(safe-area-inset-left, 0px);
+    }
+
     /* Pantalla de carga: tapa el canvas negro mientras baja el mapa (el
        asset pesado). main.js la saca cuando el mapa está listo. */
     #loading {
@@ -439,7 +451,7 @@
 
   <div id="loading">
     <div class="broom">🧹</div>
-    <div>Escoba Voladora</div>
+    <div>Broomball Blitz</div>
     <div class="bar"><i></i></div>
   </div>
   <div id="rotate-hint">

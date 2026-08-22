@@ -15,12 +15,15 @@ const CHAR = 1.7;
 
 export const CFG = {
   charScale: CHAR,
-  // Arena — el mapa ES la imagen "1 mapa.jpeg" (2752x1536), escalada por MAP.
+  // Arena — el mapa ES la imagen "mapa.webp" (2752x1536), escalada por MAP.
   // El mundo usa píxeles de esa imagen con el origen en su centro, así el
   // arte y la física comparten exactamente las mismas coordenadas y nada
   // queda desalineado. La cámara es fija: siempre se ve el mapa completo.
   arena: {
-    src: '1%20mapa.jpeg', // relativo: funciona igual servido desde raíz o subpath
+    // WebP q92: mismas dimensiones que el JPEG original, 262 KB en vez de
+    // 1.99 MB (PSNR 43.9 dB — indistinguible a ojo) y sin el espacio en el
+    // nombre, que obligaba a URL-encodearlo y era un riesgo con CDNs.
+    src: 'mapa.webp',    // relativo: funciona igual servido desde raíz o subpath
     scale: MAP,
     imgW: 2752 * MAP,
     imgH: 1536 * MAP,

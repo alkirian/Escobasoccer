@@ -20,18 +20,22 @@ import { deflateRawSync } from 'node:zlib';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUB = path.join(ROOT, 'public');
 const OUT = path.join(ROOT, 'dist', 'crazygames');
-const ZIP_NAME = 'EscobaVoladora-CrazyGames.zip';
+const ZIP_NAME = 'BroomballBlitz-CrazyGames.zip';
 
 // Páginas que ve el jugador. editor.html / veditor.html / menu.html y las
 // escenas de dev NO están acá — por eso no viajan.
+// modo.html se sumó cuando el flujo pasó a ser menú → elegir modo → elegir
+// personaje: el botón JUGAR de index.html apunta ahí, así que sin esta
+// entrada el ZIP del portal quedaba con un link roto a la primera página
+// que toca cualquier jugador que aprieta JUGAR.
 const ENTRIES = [
-  'index.html', 'play.html', 'jugar.html',
+  'index.html', 'modo.html', 'play.html', 'jugar.html',
   'personajes.html', 'opciones.html', 'trofeos.html',
 ];
 
 // Referenciados por string en runtime (el walker no los puede ver):
 const RUNTIME_ASSETS = [
-  '1 mapa.jpeg',      // CFG.arena.src ('1%20mapa.jpeg', URL-encoded)
+  'mapa.webp',        // CFG.arena.src
 ];
 
 // build_config que viaja en el paquete del portal. Reemplaza al del repo.
@@ -42,6 +46,10 @@ export const BUILD_CONFIG = {
   portalMode: true,
   pwa: false,
   externalLinks: false,
+  // Basic Launch va sin SDK: no se carga ningún script externo. Para Full
+  // Launch se cambia a true (la implementación ya vive en
+  // src/platform/crazygames.js) y se re-corre la QA.
+  sdk: false,
   debug: false,
 };
 `;
@@ -89,6 +97,26 @@ async function scan(rel) {
   for (const r of refs) await enqueue(r, rel);
 }
 
+// Vacía el directorio de salida sin borrarlo. En Windows el Explorador, un
+// antivirus o un servidor estático apuntando a dist/ mantienen el *directorio*
+// abierto y `fs.rm(recursive)` falla con EBUSY aunque los archivos sí se
+// puedan reemplazar. Borrando el contenido y dejando la carpeta en pie, el
+// build funciona igual con dist/ abierta en una ventana.
+async function cleanDir(dir) {
+  await fs.mkdir(dir, { recursive: true });
+  for (const d of await fs.readdir(dir, { withFileTypes: true })) {
+    const p = path.join(dir, d.name);
+    try {
+      await fs.rm(p, { recursive: true, force: true });
+    } catch (e) {
+      if (e.code !== 'EBUSY' && e.code !== 'EPERM') throw e;
+      // Un archivo tomado por otro proceso se sobrescribe igual más abajo;
+      // solo avisamos para que un sobrante viejo no pase inadvertido.
+      console.warn(`  ⚠ no se pudo borrar ${norm(path.relative(ROOT, p))} (${e.code}); se sobrescribe`);
+    }
+  }
+}
+
 async function main() {
   // 1) Grafo de dependencias desde las entradas
   for (const e of ENTRIES) {
@@ -114,7 +142,7 @@ async function main() {
   }
 
   // 2) Copiar limpio
-  await fs.rm(OUT, { recursive: true, force: true });
+  await cleanDir(OUT);
   for (const rel of [...seen].sort()) {
     const dst = path.join(OUT, rel);
     await fs.mkdir(path.dirname(dst), { recursive: true });
@@ -126,6 +154,13 @@ async function main() {
       let html = await fs.readFile(path.join(PUB, rel), 'utf8');
       html = html.replace(/^.*<link[^>]+rel=["']manifest["'][^>]*>.*\r?\n/gm, '');
       html = html.replace(/<a[^>]+href=["']https?:\/\/[^"']+["'][^>]*>[\s\S]*?<\/a>/g, '');
+      // Los editores (veditor/editor) NO viajan en el paquete, así que un
+      // <a> que los apunte es un 404 esperando a que alguien haga clic. Hoy
+      // esos enlaces se borran en runtime (externalLinks:false), pero eso
+      // depende de que el módulo cargue: si fallara, el revisor del portal
+      // encuentra una página de error. Se quitan también del HTML, que es
+      // donde el problema no puede volver.
+      html = html.replace(/<a[^>]+href=["'](?:v?editor)\.html["'][^>]*>[\s\S]*?<\/a>/g, '');
       await fs.writeFile(dst, html);
     } else {
       await fs.copyFile(path.join(PUB, rel), dst);

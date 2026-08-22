@@ -1,5 +1,22 @@
 // English — the fallback language. Every key the game uses MUST exist here.
 export const EN = {
+  // ── <title> and meta description per page ───────────────────────────────
+  // The HTML <title> and meta tags don't go through applyI18n (it only
+  // touches DOM with data-i18n) — without this, the tab title and the
+  // share preview stayed in Spanish no matter the page's language. Applied
+  // with JS on load for every page (see applyMeta in i18n.js).
+  'title.index': 'Broomball Blitz — wizard football on flying brooms',
+  'title.modo': 'Broomball Blitz — Choose mode',
+  'title.play': 'Broomball Blitz — Match',
+  'title.jugar': 'Broomball Blitz — Prepare match',
+  'title.personajes': 'Broomball Blitz — Characters',
+  'title.opciones': 'Broomball Blitz — Settings',
+  'title.trofeos': 'Broomball Blitz — Trophies',
+  'meta.desc.index': 'Magic sport, 1v1 and 2v2: wizards riding physics-driven brooms fight to put the ball in the rival portal. Charged hits, dashes, orbs and goal explosions. Free, in your browser.',
+  'meta.desc.play': 'Wizard football on flying brooms: wild physics, charged hits and goal explosions.',
+  'meta.og.title': 'Broomball Blitz',
+  'meta.og.desc': 'Wizard football on flying brooms: wild physics, charged hits and goal explosions. Play free in your browser.',
+
   // ── Main menu ───────────────────────────────────────────────────────────
   'menu.tagline': 'Wizard football. Wild physics. Zero polite rules.',
   'menu.play': 'PLAY',
@@ -234,6 +251,13 @@ export const EN = {
   'game.goal.rival': "Rival's goal",
   'game.goal.blue': "Blue bot's goal",
   'game.goal.red': "Red bot's goal",
+  // Own goal: who kicked it in is different from who the point goes to
+  // (see match.js ownGoal/goalKicker) — the text has to say whose own goal
+  // it was, not credit the team that never touched it.
+  'game.goal.ownYou': 'Own goal',
+  'game.goal.ownRival': "Rival's own goal",
+  'game.goal.ownBlue': "Blue bot's own goal",
+  'game.goal.ownRed': "Red bot's own goal",
   'game.victory': 'VICTORY!',
   'game.defeat': 'DEFEAT',
   'game.champion': 'CHAMPION!',
@@ -300,10 +324,12 @@ export const EN = {
 
   // ── Coach ───────────────────────────────────────────────────────────────
   'coach.mover': 'The broom follows your cursor',
-  'coach.golpe': 'Hold and release to hit',
+  'coach.acercar': 'Get close to the ball',
+  'coach.golpe': 'Hold click, aim, and release to hit',
   'coach.dash': 'Dash — you carry 2 charges',
   'coach.boost': 'Boost: drains the green energy',
   'coach.flotar': 'Brake and hover in place',
+  'coach.arco': 'Score in the rival goal',
   'coach.well': '✓ Nice!',
 
   // ── Trophies ────────────────────────────────────────────────────────────

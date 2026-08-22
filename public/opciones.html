@@ -2,8 +2,8 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Escoba Voladora — Opciones</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Broomball Blitz — Opciones</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -19,6 +19,7 @@
     /* Pantalla completa: el contenido scrollea DENTRO de su panel, la
        página nunca. */
     height: 100%; overflow: hidden; padding: 18px 18px 14px;
+    --pad-t: 18px; --pad-r: 18px; --pad-b: 14px; --pad-l: 18px;
     display: flex; flex-direction: column; align-items: center; gap: 16px;
   }
   h1 { font: 700 28px Georgia, serif; }
@@ -86,6 +87,18 @@
     cursor: pointer; transition: .13s;
   }
   .langchip.on { border-color: var(--accent); color: var(--accent); }
+
+  /* Safe areas (notch / barra de gestos). Con viewport-fit=cover el contenido
+     ocupa toda la pantalla, así que hay que meterlo hacia adentro a mano. En
+     un dispositivo sin recortes los env() valen 0px y el layout no cambia. */
+  @supports (padding: env(safe-area-inset-top)) {
+    body {
+      padding-top: calc(var(--pad-t, 14px) + env(safe-area-inset-top, 0px));
+      padding-right: calc(var(--pad-r, 16px) + env(safe-area-inset-right, 0px));
+      padding-bottom: calc(var(--pad-b, 12px) + env(safe-area-inset-bottom, 0px));
+      padding-left: calc(var(--pad-l, 16px) + env(safe-area-inset-left, 0px));
+    }
+  }
 </style>
 </head>
 <body>
@@ -147,8 +160,9 @@
 
   <script type="module">
     import { Storage } from './src/storage/storage.js';
-    import { t, applyI18n, setLang, manualLang } from './src/i18n/i18n.js';
+    import { t, applyI18n, applyMeta, setLang, manualLang } from './src/i18n/i18n.js';
     applyI18n();
+    applyMeta('opciones');
 
     // Selector de idioma: la elección manual pisa la detección automática.
     // Cambiar recarga la página — es la forma más simple de retraducir todo.
@@ -184,7 +198,7 @@
     // Borrado total: SOLO progreso del juego. No toca los skins del editor
     // (eso sería destruir trabajo creativo por limpiar un marcador).
     document.getElementById('btnWipe').onclick = () => {
-      if (!confirm('¿Borrar récords, desafíos, torneo y paletas elegidas?\n(Los personajes del editor NO se tocan.)')) return;
+      if (!confirm(t('opt.wipe.confirm'))) return;
       for (const k of ['escoba.stats.v1', 'escoba.challenges.v1', 'escoba.torneo.v1',
                        'escoba.palette.v1', 'escoba.prep.v1']) {
         try { Storage.remove(k); } catch { /* nada */ }

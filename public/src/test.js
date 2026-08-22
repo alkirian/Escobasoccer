@@ -221,6 +221,6 @@ window.__sim = (seconds = 1) => {
   };
 };
 
-console.log('%c🧹 Escoba Voladora — PRÁCTICA', 'font-size:16px;color:#ffd76a');
+console.log('%c🧹 Broomball Blitz — PRÁCTICA', 'font-size:16px;color:#ffd76a');
 console.log('Mouse: apuntar · LMB: acelerar · RMB: frenar · ESPACIO: cargar y soltar para golpear');
 console.log('R: reubicar pelota · P: pausa · F3: debug');

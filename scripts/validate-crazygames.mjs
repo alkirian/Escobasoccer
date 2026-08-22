@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist', 'crazygames');
-const ZIP = 'EscobaVoladora-CrazyGames.zip';
+const ZIP = 'BroomballBlitz-CrazyGames.zip';
 
 const errors = [];
 const warns = [];
@@ -155,6 +155,47 @@ async function main() {
   else ok.push('build_config: pwa false (SW no se registra)');
   if (!/externalLinks:\s*false/.test(cfg)) errors.push('build_config.js tiene externalLinks: true');
   else ok.push('build_config: sin enlaces externos');
+  // Basic Launch no lleva SDK. El código de integración PUEDE viajar (está
+  // apagado por el flag); lo que no puede es quedar activo por descuido.
+  if (!/sdk:\s*false/.test(cfg)) errors.push('build_config.js tiene sdk: true — Basic Launch va sin SDK');
+  else ok.push('build_config: sdk false (Basic Launch, sin scripts externos)');
+
+  // ── Ningún <script src> apuntando fuera ───────────────────────────────
+  // El SDK se inyecta por JS y sólo si el flag está en true (ya verificado
+  // arriba); un <script src="https://..."> en el HTML sería una carga externa
+  // incondicional, que es lo que el portal no quiere en Basic.
+  let extScriptOk = true;
+  for (const f of files.filter((x) => x.endsWith('.html'))) {
+    const src = await fs.readFile(path.join(DIST, f), 'utf8');
+    for (const m of src.matchAll(/<script[^>]+src=["'](https?:\/\/[^"']+)["']/g)) {
+      errors.push(`${f}: script externo ${m[1]}`);
+      extScriptOk = false;
+    }
+  }
+  if (extScriptOk) ok.push('sin <script> externos en el HTML');
+
+  // ── Enlaces internos que apuntan a la nada ────────────────────────────
+  // Un <a href="algo.html"> hacia una página que no viaja en el paquete es
+  // un 404 esperando un clic del revisor. (Los href externos se revisan
+  // aparte, más abajo.)
+  let deadLinksOk = true;
+  for (const f of files.filter((x) => x.endsWith('.html'))) {
+    const src = await fs.readFile(path.join(DIST, f), 'utf8');
+    for (const m of src.matchAll(/<a[^>]+href=["']([^"']+)["']/g)) {
+      const href = m[1];
+      if (!href || /^(https?:|data:|#|mailto:|blob:|javascript:)/.test(href)) continue;
+      const target = decodeURIComponent(href.split('#')[0].split('?')[0]);
+      if (!target) continue;
+      const rel = path.posix.normalize(path.posix.join(path.posix.dirname(f), target));
+      try {
+        await fs.access(path.join(DIST, rel));
+      } catch {
+        errors.push(`${f}: enlace interno roto "${href}" (no existe en el paquete)`);
+        deadLinksOk = false;
+      }
+    }
+  }
+  if (deadLinksOk) ok.push('sin enlaces internos rotos');
 
   // ── Enlaces promocionales en HTML del build ───────────────────────────
   let linksOk = true;

@@ -12,5 +12,10 @@ export const BUILD_CONFIG = {
   portalMode: false,        // true = entrada rápida a gameplay, sin extras
   pwa: true,                // registrar service worker / manifest
   externalLinks: true,      // mostrar enlaces fuera del juego (GitHub, etc.)
+  // Cargar el SDK de CrazyGames. Basic Launch va SIN SDK (false): no se pide
+  // ningún script externo. Se pone en true recién para Full Launch, y sólo
+  // junto con platform: 'crazygames' — la implementación ya está escrita en
+  // src/platform/crazygames.js.
+  sdk: false,
   debug: false,
 };

@@ -70,3 +70,24 @@ export function applyI18n(root = document) {
   }
   document.documentElement.lang = lang;
 }
+
+// <title> y meta description/og no son elementos con data-i18n (no tiene
+// sentido llenar el <head> de atributos por esto), así que se traducen
+// aparte con la clave 'title.<page>' / 'meta.desc.<page>'. `page` es el
+// nombre corto que cada HTML se pasa a sí mismo (ej. 'index', 'jugar').
+// Sin esto la pestaña del navegador y el preview al compartir el link
+// quedaban siempre en español, sin importar el idioma detectado.
+export function applyMeta(page) {
+  const title = t(`title.${page}`);
+  if (title && !title.startsWith('title.')) document.title = title;
+
+  const descEl = document.querySelector('meta[name="description"]');
+  if (descEl) {
+    const d = t(`meta.desc.${page}`);
+    if (d && !d.startsWith('meta.desc.')) descEl.setAttribute('content', d);
+  }
+  const ogTitleEl = document.querySelector('meta[property="og:title"]');
+  if (ogTitleEl) ogTitleEl.setAttribute('content', t('meta.og.title'));
+  const ogDescEl = document.querySelector('meta[property="og:description"]');
+  if (ogDescEl) ogDescEl.setAttribute('content', t('meta.og.desc'));
+}

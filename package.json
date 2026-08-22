@@ -1,11 +1,14 @@
 {
-  "name": "escoba-voladora",
+  "name": "broomball-blitz",
   "version": "0.1.0",
-  "description": "Deporte competitivo 2.5D de escobas voladoras — MVP",
+  "description": "Broomball Blitz — competitive 2.5D flying-broom sport",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "build:crazygames": "node scripts/build-crazygames.mjs",
-    "validate:crazygames": "node scripts/validate-crazygames.mjs"
+    "validate:crazygames": "node scripts/validate-crazygames.mjs",
+    "preview:video": "node scripts/record-preview.mjs",
+    "serve:dist": "node scripts/serve-dist.mjs",
+    "qa:browsers": "node scripts/qa-browsers.mjs"
   }
 }

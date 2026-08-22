@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Escoba Voladora — fútbol de magos en escobas</title>
+  <title>Broomball Blitz — fútbol de magos en escobas</title>
   <meta name="description" content="Deporte mágico 1v1 y 2v2: magos colgados de escobas físicas pelean por meter la pelota en el portal rival. Golpes cargados, dashes, orbes y explosiones de gol. Gratis, en tu navegador.">
   <meta name="theme-color" content="#0a0c18">
   <!-- Vista previa al compartir el link. og:image necesita URL absoluta:
        cuando el juego tenga dominio, agregá
        <meta property="og:image" content="https://TU-DOMINIO/captura.jpg"> -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Escoba Voladora">
+  <meta property="og:title" content="Broomball Blitz">
   <meta property="og:description" content="Fútbol de magos en escobas voladoras: física alocada, golpes cargados y explosiones de gol. Jugá gratis en el navegador.">
   <meta name="twitter:card" content="summary">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
@@ -174,7 +174,9 @@
 <body>
   <div id="coinChip"><span>🪙</span> <span id="coinCount">0</span></div>
 
-  <h1 class="logo"><span class="escoba">🧹</span> Escoba <span class="v">Voladora</span></h1>
+  <!-- El nombre es marca: NO se traduce (por eso no lleva data-i18n). La
+       segunda palabra va en oro, que es el acento del menú. -->
+  <h1 class="logo"><span class="escoba">🧹</span> Broomball <span class="v">Blitz</span></h1>
   <p class="tag" data-i18n="menu.tagline">Fútbol de magos. Física alocada. Cero reglas elegantes.</p>
 
   <nav>
@@ -189,11 +191,12 @@
   </footer>
 
   <script type="module">
-    import { applyI18n, t } from './src/i18n/i18n.js';
+    import { applyI18n, applyMeta, t } from './src/i18n/i18n.js';
     import { BUILD_CONFIG } from './src/build_config.js';
     import { isFirstEver } from './src/stats.js';
     import { coins } from './src/roster.js';
     applyI18n();
+    applyMeta('index');
     document.getElementById('coinCount').textContent = coins();
 
     // ── Modo portal (CrazyGames) ─────────────────────────────────────────

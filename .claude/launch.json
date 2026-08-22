@@ -7,6 +7,13 @@
       "runtimeArgs": ["server.js"],
       "port": 5680,
       "autoPort": true
+    },
+    {
+      "name": "escoba-dist",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/serve-dist.mjs", "dist/crazygames", "8321"],
+      "port": 8321,
+      "autoPort": true
     }
   ]
 }

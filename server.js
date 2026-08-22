@@ -1,4 +1,4 @@
-// Servidor estático simple — Escoba Voladora
+// Servidor estático simple — Broomball Blitz
 // Uso: node server.js  →  http://localhost:5680
 const http = require('http');
 const fs = require('fs');
@@ -34,7 +34,7 @@ http.createServer((req, res) => {
     res.end(data);
   });
 }).listen(PORT, '0.0.0.0', () => {
-  console.log(`🧹 Escoba Voladora → http://localhost:${PORT}`);
+  console.log(`🧹 Broomball Blitz → http://localhost:${PORT}`);
   console.log(`   /test   → escena de práctica (sin rivales ni arcos)`);
   console.log(`   ?debug  → overlay de físicas`);
   console.log(`   ?bots   → IA vs IA`);

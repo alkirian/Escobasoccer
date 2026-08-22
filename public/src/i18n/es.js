@@ -1,5 +1,22 @@
 // Español — los textos originales del juego, movidos acá desde el código.
 export const ES = {
+  // ── <title> y meta description por página ──────────────────────────────
+  // El <title> HTML y las meta tags no pasan por applyI18n (solo tocan el
+  // DOM con data-i18n) — sin esto, la pestaña y el preview al compartir
+  // quedaban en español fijo aunque el resto de la página cambiara de
+  // idioma. Se aplican con JS al cargar cada página (ver applyMeta en i18n.js).
+  'title.index': 'Broomball Blitz — fútbol de magos en escobas',
+  'title.modo': 'Broomball Blitz — Elegir modo',
+  'title.play': 'Broomball Blitz — Partido',
+  'title.jugar': 'Broomball Blitz — Preparar partido',
+  'title.personajes': 'Broomball Blitz — Personajes',
+  'title.opciones': 'Broomball Blitz — Opciones',
+  'title.trofeos': 'Broomball Blitz — Trofeos',
+  'meta.desc.index': 'Deporte mágico 1v1 y 2v2: magos colgados de escobas físicas pelean por meter la pelota en el portal rival. Golpes cargados, dashes, orbes y explosiones de gol. Gratis, en tu navegador.',
+  'meta.desc.play': 'Fútbol de magos en escobas voladoras: física alocada, golpes cargados y explosiones de gol.',
+  'meta.og.title': 'Broomball Blitz',
+  'meta.og.desc': 'Fútbol de magos en escobas voladoras: física alocada, golpes cargados y explosiones de gol. Jugá gratis en el navegador.',
+
   // ── Menú principal ──────────────────────────────────────────────────────
   'menu.tagline': 'Fútbol de magos. Física alocada. Cero reglas elegantes.',
   'menu.play': 'JUGAR',
@@ -234,6 +251,13 @@ export const ES = {
   'game.goal.rival': 'Gol del rival',
   'game.goal.blue': 'Gol del bot azul',
   'game.goal.red': 'Gol del bot rojo',
+  // Autogol: quien metió la pelota es distinto de a quién le sirve el punto
+  // (ver match.js ownGoal/goalKicker) — el texto tiene que decir en contra
+  // de quién fue, no acusar al que no la tocó.
+  'game.goal.ownYou': 'Gol en contra tuyo',
+  'game.goal.ownRival': 'Gol en contra del rival',
+  'game.goal.ownBlue': 'Gol en contra del bot azul',
+  'game.goal.ownRed': 'Gol en contra del bot rojo',
   'game.victory': '¡VICTORIA!',
   'game.defeat': 'DERROTA',
   'game.champion': '¡CAMPEÓN!',
@@ -300,10 +324,12 @@ export const ES = {
 
   // ── Coach ───────────────────────────────────────────────────────────────
   'coach.mover': 'La escoba sigue tu cursor',
-  'coach.golpe': 'Mantené y soltá para golpear',
+  'coach.acercar': 'Acercate a la pelota',
+  'coach.golpe': 'Mantené click, apuntá y soltá para golpear',
   'coach.dash': 'Dash — tenés 2 cargas',
   'coach.boost': 'Propulsión: gasta la energía verde',
   'coach.flotar': 'Frená y quedate flotando',
+  'coach.arco': 'Metela en el arco rival',
   'coach.well': '✓ ¡Bien!',
 
   // ── Trofeos ─────────────────────────────────────────────────────────────

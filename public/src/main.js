@@ -1,4 +1,4 @@
-// Escoba Voladora — MVP
+// Broomball Blitz — MVP
 // Deporte 2.5D: magos agarrados a escobas físicas pelean por meter
 // una pelota en el portal rival.
 // Controles: Mouse=apuntar/mover · LMB=giro+golpe · Space=dash · Shift=boost · RMB=flotar
@@ -27,7 +27,7 @@ import { interactPlayerBall, interactPlayers, clampRiderArena } from './collisio
 import { emitTrail } from './characters.js';
 
 import { Storage } from './storage/storage.js';
-import { t, applyI18n } from './i18n/i18n.js';
+import { t, applyI18n, applyMeta } from './i18n/i18n.js';
 import { Platform } from './platform/platform.js';
 
 // ── Tuning dash + giro ────────────────────────────────────────────────────
@@ -57,6 +57,7 @@ const ctx = canvas.getContext('2d');
 // Traducir el HUD estático de play.html al idioma resuelto, y avisar a la
 // plataforma que la página del partido arrancó.
 applyI18n();
+applyMeta('play');
 Platform.init();
 
 // Flags de URL
@@ -324,6 +325,9 @@ const world = {
   practice: PRACTICE,        // cancha libre: el HUD cambia a modo práctica
   match: null,
   dashState, spin, charge,   // expuestos para el HUD del renderer
+  hitRange: SPIN.range,      // radio real del golpe dirigido — la flecha de
+                             // apuntado (render.js _aimIndicator) lo usa para
+                             // saber si "ahora sí" va a salir asistido
   // Desafíos completados esperando su aviso en pantalla (los saca el render)
   challengeQueue: [],
   // Estela fantasma del dash (siluetas que dibuja el render)
@@ -881,6 +885,9 @@ function _pauseAction(id) {
 let last = performance.now();
 let acc = 0;
 let prevMatchState = null;
+// Último valor de "el jugador está jugando de verdad" (partido en curso y sin
+// pausa). Alimenta los gameplayStart/gameplayStop que espera el portal.
+let _wasPlaying = false;
 // Tiempo de partido pendiente de aplicar. Existe porque la física avanza en
 // pasos discretos y el reloj del partido tiene que seguirla sin perder ni
 // inventar tiempo (ver el cálculo más abajo).
@@ -1019,6 +1026,14 @@ function frame(now) {
     }
     _pendingClip = null;
   }
+  // Lección del coach "meté el arco": el gol real del humano es la prueba
+  // definitiva de que entendió dónde apuntar, así que la marca aprendida acá
+  // sin esperar a que vuelva a pasar por el disparador contextual (`when`).
+  if (match.state === 'goal' && prevMatchState !== 'goal'
+      && match.goalScorer === 'p1' && !BOTS) {
+    coach.markLearned('arco');
+  }
+
   // Piromanía: gol del humano con la pelota EN LLAMAS en el momento de entrar
   if (match.state === 'goal' && prevMatchState !== 'goal'
       && match.goalScorer === 'p1' && !BOTS && !PRACTICE) {
@@ -1045,8 +1060,17 @@ function frame(now) {
 
   // Señales de gameplay a la plataforma (Fase 6). Para Basic Launch son
   // no-ops; con el SDK completo alimentan las métricas del portal.
-  if (match.state === 'play' && prevMatchState !== 'play') Platform.gameplayStart();
-  if (match.state === 'end' && prevMatchState !== 'end') Platform.gameplayStop();
+  //
+  // "Jugando de verdad" NO es sólo match.state === 'play': el portal pide
+  // gameplayStop() también en pausa, menú de pausa y pantalla de resultados.
+  // Por eso el flanco se calcula sobre un booleano derivado (estado + pausa)
+  // y no sobre match.state: así cualquier sitio que toque world.paused emite
+  // el par start/stop correcto sin tener que acordarse de avisar.
+  const _playingNow = match.state === 'play' && !world.paused;
+  if (_playingNow !== _wasPlaying) {
+    if (_playingNow) Platform.gameplayStart(); else Platform.gameplayStop();
+    _wasPlaying = _playingNow;
+  }
   prevMatchState = match.state;
 
   // Dash: solo registrar si el juego está corriendo (no pausado, no fin) y ya
@@ -1234,6 +1258,9 @@ window.__sim = (seconds = 10) => {
   };
 };
 
-console.log('%c🧹 Escoba Voladora', 'font-size:16px;color:#3fc0ff');
-console.log('Mouse: apuntar · LMB: golpe cargado · RMB: flotar · Space: dash · Shift: boost');
-console.log('P: pausa · R: reiniciar · F3: debug físicas');
+// Banner de consola. En inglés a propósito: quien abre la consola es un
+// revisor del portal o un dev, y el inglés es el idioma común — el jugador
+// aprende los controles con el coach dentro del partido, no acá.
+console.log('%c🧹 Broomball Blitz', 'font-size:16px;color:#3fc0ff');
+console.log('Mouse: aim · LMB: charged hit · RMB: hover · Space: dash · Shift: boost');
+console.log('P: pause · R: restart · F3: physics debug');
